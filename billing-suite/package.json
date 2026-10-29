@@ -1,0 +1,29 @@
+{
+  "name": "billing-suite",
+  "private": true,
+  "version": "1.0.0",
+  "workspaces": ["apps/*", "packages/*"],
+  "scripts": {
+    "infra:up": "docker compose -f infrastructure/docker-compose.yml up -d",
+    "infra:down": "docker compose -f infrastructure/docker-compose.yml down",
+    "db:generate": "prisma generate --schema packages/database/prisma/schema.prisma",
+    "db:migrate": "prisma migrate dev --schema packages/database/prisma/schema.prisma",
+    "db:deploy": "prisma migrate deploy --schema packages/database/prisma/schema.prisma",
+    "db:seed": "tsx packages/database/prisma/seed.ts",
+    "dev:api": "npm run dev -w @app/api",
+    "dev:worker": "npm run dev -w @app/worker",
+    "dev:web": "npm run dev -w @app/web",
+    "build:web": "npm run build -w @app/web",
+    "start:web": "npm run start -w @app/web",
+    "build": "npm run build -w @app/web",
+    "start": "npm run start -w @app/web",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.0",
+    "prisma": "^5.22.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.6.0",
+    "vitest": "^2.1.0"
+  }
+}

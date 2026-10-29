@@ -1,0 +1,459 @@
+// Core data model (spec section 7).
+// Rules: UUID keys, business_id on every tenant-owned row, NUMERIC for money,
+// stock changes only via the stock_movements ledger, issued invoices never edited.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  OWNER
+  ACCOUNTANT
+  INVENTORY_MANAGER
+  CASHIER
+  VIEWER
+}
+
+enum DocType {
+  TAX_INVOICE
+  BILL_OF_SUPPLY
+  RECEIPT
+  ESTIMATE
+  DELIVERY_CHALLAN
+  CREDIT_NOTE
+  DEBIT_NOTE
+}
+
+enum InvoiceStatus {
+  DRAFT
+  ISSUED
+  CANCELLED
+}
+
+enum PaymentMethod {
+  CASH
+  UPI
+  CARD
+  BANK_TRANSFER
+  CHEQUE
+  GATEWAY
+}
+
+enum MovementReason {
+  OPENING
+  PURCHASE
+  SALE
+  RETURN
+  ADJUSTMENT
+  TRANSFER
+}
+
+enum JobStatus {
+  QUEUED
+  PROCESSING
+  NEEDS_REVIEW
+  APPROVED
+  FAILED
+}
+
+model Business {
+  id            String   @id @default(uuid())
+  name          String
+  gstin         String?
+  stateCode     String
+  address       String?
+  financialYearStartMonth Int @default(4)
+  settings      Json     @default("{}")
+  createdAt     DateTime @default(now())
+
+  memberships   Membership[]
+  customers     Customer[]
+  vendors       Vendor[]
+  products      Product[]
+  locations     StockLocation[]
+  invoices      Invoice[]
+}
+
+model User {
+  id           String   @id @default(uuid())
+  email        String   @unique
+  name         String
+  passwordHash String
+  createdAt    DateTime @default(now())
+  memberships  Membership[]
+}
+
+model Membership {
+  id         String   @id @default(uuid())
+  userId     String
+  businessId String
+  role       Role
+  active     Boolean  @default(true)
+  createdAt  DateTime @default(now())
+
+  user     User     @relation(fields: [userId], references: [id])
+  business Business @relation(fields: [businessId], references: [id])
+
+  @@unique([userId, businessId])
+  @@index([businessId])
+}
+
+model Customer {
+  id             String   @id @default(uuid())
+  businessId     String
+  name           String
+  phone          String?
+  email          String?
+  gstin          String?
+  stateCode      String?
+  address        String?
+  creditLimit    Decimal  @default(0) @db.Decimal(14, 2)
+  paymentTermsDays Int    @default(0)
+  openingBalance Decimal  @default(0) @db.Decimal(14, 2)
+  createdAt      DateTime @default(now())
+
+  business Business  @relation(fields: [businessId], references: [id])
+  invoices Invoice[]
+
+  @@index([businessId, name])
+}
+
+model Vendor {
+  id             String   @id @default(uuid())
+  businessId     String
+  name           String
+  gstin          String?
+  stateCode      String?
+  phone          String?
+  address        String?
+  paymentTermsDays Int    @default(0)
+  openingBalance Decimal  @default(0) @db.Decimal(14, 2)
+  createdAt      DateTime @default(now())
+
+  business  Business           @relation(fields: [businessId], references: [id])
+  purchases PurchaseInvoice[]
+
+  @@index([businessId, name])
+}
+
+model Product {
+  id         String   @id @default(uuid())
+  businessId String
+  sku        String
+  barcode    String?
+  name       String
+  category   String?
+  brand      String?
+  design     String?
+  hsn        String?
+  gstRate    Decimal  @default(0) @db.Decimal(5, 2)
+  taxCategory String  @default("TAXABLE")
+  unit       String   @default("PCS") // PCS, MTR, YD, KG, ROLL, BUNDLE
+  isFabric   Boolean  @default(false)
+  salePrice  Decimal  @db.Decimal(14, 2)
+  wholesalePrice Decimal? @db.Decimal(14, 2)
+  costPrice  Decimal? @db.Decimal(14, 2)
+  reorderLevel Decimal? @db.Decimal(14, 3)
+  active     Boolean  @default(true)
+  createdAt  DateTime @default(now())
+
+  business Business         @relation(fields: [businessId], references: [id])
+  variants ProductVariant[]
+  lots     TextileLot[]
+
+  @@unique([businessId, sku])
+  @@index([businessId, barcode])
+  @@index([businessId, name])
+}
+
+model ProductVariant {
+  id         String  @id @default(uuid())
+  businessId String
+  productId  String
+  size       String?
+  colour     String?
+  style      String?
+  sku        String
+  barcode    String?
+  salePrice  Decimal? @db.Decimal(14, 2)
+
+  product Product @relation(fields: [productId], references: [id])
+
+  @@unique([businessId, sku])
+  @@index([businessId, barcode])
+}
+
+model StockLocation {
+  id         String  @id @default(uuid())
+  businessId String
+  name       String
+  address    String?
+  isDefault  Boolean @default(false)
+
+  business Business @relation(fields: [businessId], references: [id])
+  @@index([businessId])
+}
+
+// Fabric roll / lot with remaining length.
+model TextileLot {
+  id              String   @id @default(uuid())
+  businessId      String
+  productId       String
+  lotCode         String
+  rollCode        String
+  shade           String?
+  colour          String?
+  width           Decimal? @db.Decimal(8, 2)
+  unit            String   @default("MTR")
+  originalLength  Decimal  @db.Decimal(14, 3)
+  remainingLength Decimal  @db.Decimal(14, 3)
+  notes           String?
+  createdAt       DateTime @default(now())
+
+  product Product @relation(fields: [productId], references: [id])
+
+  @@unique([businessId, productId, rollCode])
+  @@index([businessId, productId])
+}
+
+// Append-only ledger. Balance = SUM(delta).
+model StockMovement {
+  id          String         @id @default(uuid())
+  businessId  String
+  locationId  String
+  productId   String
+  variantId   String?
+  lotId       String?
+  delta       Decimal        @db.Decimal(14, 3)
+  unit        String
+  reason      MovementReason
+  refType     String?
+  refId       String?
+  createdById String?
+  createdAt   DateTime       @default(now())
+
+  @@index([businessId, productId, locationId])
+  @@index([businessId, refType, refId])
+}
+
+model Invoice {
+  id            String        @id @default(uuid())
+  businessId    String
+  customerId    String?
+  docType       DocType
+  number        String
+  financialYear String
+  status        InvoiceStatus @default(ISSUED)
+  issueDate     DateTime      @default(now())
+  dueDate       DateTime?
+  placeOfSupply String
+  subtotal      Decimal       @db.Decimal(14, 2)
+  discountTotal Decimal       @db.Decimal(14, 2)
+  taxableTotal  Decimal       @db.Decimal(14, 2)
+  cgst          Decimal       @db.Decimal(14, 2)
+  sgst          Decimal       @db.Decimal(14, 2)
+  igst          Decimal       @db.Decimal(14, 2)
+  cess          Decimal       @db.Decimal(14, 2)
+  roundOff      Decimal       @db.Decimal(14, 2)
+  grandTotal    Decimal       @db.Decimal(14, 2)
+  refInvoiceId  String?       // credit/debit note -> original invoice
+  notes         String?
+  createdById   String
+  createdAt     DateTime      @default(now())
+
+  business Business      @relation(fields: [businessId], references: [id])
+  customer Customer?     @relation(fields: [customerId], references: [id])
+  items    InvoiceItem[]
+  payments Payment[]
+
+  @@unique([businessId, number])
+  @@index([businessId, issueDate])
+  @@index([businessId, customerId])
+}
+
+model InvoiceItem {
+  id           String  @id @default(uuid())
+  businessId   String
+  invoiceId    String
+  productId    String?
+  variantId    String?
+  lotId        String?
+  description  String
+  hsn          String?
+  quantity     Decimal @db.Decimal(14, 3)
+  unit         String
+  unitPrice    Decimal @db.Decimal(14, 2)
+  discount     Decimal @db.Decimal(14, 2)
+  taxableValue Decimal @db.Decimal(14, 2)
+  gstRate      Decimal @db.Decimal(5, 2)
+  cgst         Decimal @db.Decimal(14, 2)
+  sgst         Decimal @db.Decimal(14, 2)
+  igst         Decimal @db.Decimal(14, 2)
+  cess         Decimal @db.Decimal(14, 2)
+  total        Decimal @db.Decimal(14, 2)
+
+  invoice Invoice @relation(fields: [invoiceId], references: [id])
+  @@index([businessId, invoiceId])
+}
+
+model Payment {
+  id          String        @id @default(uuid())
+  businessId  String
+  invoiceId   String
+  amount      Decimal       @db.Decimal(14, 2)
+  method      PaymentMethod
+  reference   String?       // UPI txn id etc. Never store card numbers.
+  paidAt      DateTime      @default(now())
+  createdById String
+
+  invoice Invoice @relation(fields: [invoiceId], references: [id])
+  @@index([businessId, invoiceId])
+  @@index([businessId, paidAt])
+}
+
+model PurchaseInvoice {
+  id            String   @id @default(uuid())
+  businessId    String
+  vendorId      String?
+  vendorName    String
+  vendorGstin   String?
+  invoiceNumber String
+  invoiceDate   DateTime
+  subtotal      Decimal  @db.Decimal(14, 2)
+  totalTax      Decimal  @db.Decimal(14, 2)
+  grandTotal    Decimal  @db.Decimal(14, 2)
+  approvalState String   @default("DRAFT") // DRAFT -> APPROVED -> RECEIVED
+  documentId    String?
+  createdById   String
+  createdAt     DateTime @default(now())
+
+  vendor Vendor?               @relation(fields: [vendorId], references: [id])
+  items  PurchaseInvoiceItem[]
+
+  @@index([businessId, vendorGstin, invoiceNumber])
+}
+
+model PurchaseInvoiceItem {
+  id          String  @id @default(uuid())
+  businessId  String
+  purchaseId  String
+  productId   String?
+  description String
+  hsn         String?
+  quantity    Decimal @db.Decimal(14, 3)
+  unit        String?
+  rate        Decimal @db.Decimal(14, 2)
+  taxableValue Decimal @db.Decimal(14, 2)
+  gstRate     Decimal @db.Decimal(5, 2)
+  taxAmount   Decimal @db.Decimal(14, 2)
+  lineTotal   Decimal @db.Decimal(14, 2)
+
+  purchase PurchaseInvoice @relation(fields: [purchaseId], references: [id])
+  @@index([businessId, purchaseId])
+}
+
+model Document {
+  id         String   @id @default(uuid())
+  businessId String
+  storageKey String
+  fileName   String
+  mimeType   String
+  sizeBytes  Int
+  checksum   String
+  uploadedById String
+  createdAt  DateTime @default(now())
+
+  jobs ExtractionJob[]
+
+  @@unique([businessId, checksum])
+  @@index([businessId])
+}
+
+model ExtractionJob {
+  id           String    @id @default(uuid())
+  businessId   String
+  documentId   String
+  status       JobStatus @default(QUEUED)
+  attempts     Int       @default(0)
+  modelVersion String?
+  error        String?
+  startedAt    DateTime?
+  finishedAt   DateTime?
+  createdAt    DateTime  @default(now())
+
+  document Document           @relation(fields: [documentId], references: [id])
+  result   ExtractionResult?
+
+  @@index([businessId, status])
+}
+
+model ExtractionResult {
+  id           String   @id @default(uuid())
+  businessId   String
+  jobId        String   @unique
+  data         Json     // structured extraction (strict schema)
+  confidence   Json     // per-field confidence
+  issues       Json     // validation errors / warnings
+  corrections  Json?    // what the reviewer changed (for accuracy metrics)
+  reviewState  String   @default("PENDING") // PENDING | APPROVED | REJECTED
+  reviewedById String?
+  createdAt    DateTime @default(now())
+
+  job ExtractionJob @relation(fields: [jobId], references: [id])
+}
+
+model Expense {
+  id          String   @id @default(uuid())
+  businessId  String
+  category    String
+  amount      Decimal  @db.Decimal(14, 2)
+  date        DateTime
+  method      PaymentMethod
+  note        String?
+  attachmentKey String?
+  createdById String
+  createdAt   DateTime @default(now())
+
+  @@index([businessId, date])
+}
+
+model AuditLog {
+  id         String   @id @default(uuid())
+  businessId String
+  actorId    String
+  action     String
+  entity     String
+  entityId   String?
+  summary    Json?
+  createdAt  DateTime @default(now())
+
+  @@index([businessId, createdAt])
+  @@index([businessId, entity, entityId])
+}
+
+model NumberSequence {
+  id            String @id @default(uuid())
+  businessId    String
+  docType       DocType
+  financialYear String
+  prefix        String
+  next          Int    @default(1)
+
+  @@unique([businessId, docType, financialYear])
+}
+
+model IdempotencyKey {
+  id          String   @id @default(uuid())
+  businessId  String
+  key         String
+  payloadHash String
+  resourceId  String
+  createdAt   DateTime @default(now())
+
+  @@unique([businessId, key])
+}

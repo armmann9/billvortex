@@ -1,0 +1,146 @@
+# ==============================================================================
+# 🌸 BillVortex — Complete Prompt History (.promp)
+# Project: Boutique Billing, POS & Retail Suite
+# Created: 2026-10-27
+# ==============================================================================
+
+# ------------------------------------------------------------------------------
+# 📜 CHRONOLOGICAL LIST OF ALL USER PROMPTS
+# ------------------------------------------------------------------------------
+
+[PROMPT 1]
+use this data for the billing software
+
+[PROMPT 2]
+when the  hanges is done show me
+
+[PROMPT 3]
+add a dashboard in this style
+
+[PROMPT 4]
+AT LAST ME IN A SCRATCPAD
+
+[PROMPT 5]
+DO IT
+
+[PROMPT 6]
+NOT COME IN FULL SCREEN& DO  WHEN I SELCT QUICK BILL THERE IS A INSTANT CHANGE WHICH OPEN BILL AND GENRRATE BILL INN TEHRE WHATSAPP
+
+[PROMPT 7]
+use this photo which tell about what is billvertox
+
+[PROMPT 8]
+Use a hybrid POS design:
+- Main area: Searchable product grid, category filters, and product cards.
+- Right panel: Shopping cart, quantities, discounts, GST, and grand total.
+- Top bar: Store name, cashier, date, and shortcuts.
+- Separate pages: Dashboard, billing, inventory, customers, suppliers, and reports.
+by using the png i have shared make a de
+
+[PROMPT 9]
+do
+
+[PROMPT 10]
+do the changes
+
+[PROMPT 11]
+do it
+
+[PROMPT 12]
+use the photo of each apparel individually in which it tell how they are and with get a name under it and addd a discount feature  in bill and whn i scroll it up it is not getting up
+
+[PROMPT 13]
+in this do we have to maintain data base
+
+[PROMPT 14]
+does this have a backend
+
+[PROMPT 15]
+what is this for
+
+[PROMPT 16]
+remove it  and the data in this is same everytime
+
+[PROMPT 17]
+how do i check to billvertox normal version
+
+[PROMPT 18]
+where is the about section of
+
+[PROMPT 19]
+like this i ahve mentioned u earlier
+
+[PROMPT 20]
+use this as a landing page and use the same design  ui for the billvortex as well
+
+[PROMPT 21]
+make emtire loook same
+
+[PROMPT 22]
+when i click pos counter it get started  make sure whn i click something that thing open nothing else
+
+[PROMPT 23]
+in landing page make a about section like u diid in other 
+make a start.bat file from which it can open easily 
+and read me file  and 
+and in read me tell that just run these command and it can open easily
+
+[PROMPT 24]
+in start.bat file write how tostart in hinglish
+
+[PROMPT 25]
+jab mai billvortex mai pos inventory pe click krta hu to vow ithout sign in ke oopen ho rha hai usse pehle sign hona chahiya or jo bhi data apn ne use kra abhi uski ek id bnao demo ke nam se or btao
+landing page mai feature about services and faq aane chahiye bas
+
+[PROMPT 26]
+start.bat english wali remove krdo
+
+[PROMPT 27]
+give me all prompt regarding this in a .promp file
+
+
+# ------------------------------------------------------------------------------
+# 🧭 CATEGORIZED BREAKDOWN BY PROJECT MODULE
+# ------------------------------------------------------------------------------
+
+## 1. Foundation & Initial Data Setup
+- "use this data for the billing software"
+- "add a dashboard in this style"
+- "in this do we have to maintain data base"
+- "does this have a backend"
+
+## 2. Hybrid POS & WhatsApp Billing Counter
+- "Use a hybrid POS design:
+  - Main area: Searchable product grid, category filters, and product cards.
+  - Right panel: Shopping cart, quantities, discounts, GST, and grand total.
+  - Top bar: Store name, cashier, date, and shortcuts.
+  - Separate pages: Dashboard, billing, inventory, customers, suppliers, and reports."
+- "NOT COME IN FULL SCREEN& DO WHEN I SELCT QUICK BILL THERE IS A INSTANT CHANGE WHICH OPEN BILL AND GENRRATE BILL INN TEHRE WHATSAPP"
+- "use the photo of each apparel individually in which it tell how they are and with get a name under it and addd a discount feature in bill and whn i scroll it up it is not getting up"
+
+## 3. Brand Theme & Unified Editorial Design
+- "use this photo which tell about what is billvertox"
+- "use this as a landing page and use the same design ui for the billvortex as well"
+- "make emtire loook same"
+
+## 4. Navigation & Route Routing
+- "when i click pos counter it get started make sure whn i click something that thing open nothing else"
+- "how do i check to billvertox normal version"
+
+## 5. Landing Page Scope (Features, About, Services, FAQ)
+- "where is the about section of"
+- "in landing page make a about section like u diid in other"
+- "landing page mai feature about services and faq aane chahiye bas"
+
+## 6. Security, Login Guard & Demo Account
+- "jab mai billvortex mai pos inventory pe click krta hu to vow ithout sign in ke oopen ho rha hai usse pehle sign hona chahiya or jo bhi data apn ne use kra abhi uski ek id bnao demo ke nam se or btao"
+  -> Demo ID Created:
+     Email:    demo@billvortex.com
+     Password: demo123
+     Feature:  One-Click Demo Sign In button + strict route protection on /pos, /inventory, /dashboard, /customers, /suppliers, /reports, /about.
+
+## 7. Windows 1-Click Launcher (start.bat) & Documentation
+- "make a start.bat file from which it can open easily and read me file and in read me tell that just run these command and it can open easily"
+- "in start.bat file write how tostart in hinglish"
+- "start.bat english wali remove krdo"
+  -> Removed duplicate English batch file and provided clean pure Hinglish start.bat in root.

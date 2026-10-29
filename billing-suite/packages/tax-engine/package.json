@@ -1,0 +1,7 @@
+{
+  "name": "@app/tax-engine",
+  "version": "1.0.0",
+  "main": "src/index.ts",
+  "scripts": { "test": "vitest run" },
+  "dependencies": { "decimal.js": "^10.4.3" }
+}
