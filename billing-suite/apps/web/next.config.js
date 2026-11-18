@@ -1,7 +1,7 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
-  output: "standalone",
+  ...(process.env.NETLIFY ? {} : { output: "standalone" }),
   eslint: {
     ignoreDuringBuilds: true,
   },
