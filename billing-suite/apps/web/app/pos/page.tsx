@@ -7,6 +7,16 @@ import {
   SAMPLE_FASHION_PRODUCTS,
   FashionProductItem,
 } from "../../lib/fashionCatalog";
+import { loadInventoryItems, saveInventoryItems } from "../../lib/demoData";
+import {
+  InvoiceReceiptData,
+  buildReceiptShareUrl,
+  canNativeSharePdf,
+  downloadReceiptPdf,
+  previewReceiptPdf,
+  sendPdfReceiptViaWhatsApp,
+  shareReceiptPdfNative,
+} from "../../lib/pdfReceipt";
 import Sidebar from "../components/Sidebar";
 import TopBar from "../components/TopBar";
 
@@ -34,21 +44,12 @@ export default function QuickBillPage() {
   const [billDiscountType, setBillDiscountType] = useState<"PCT" | "FLAT">("PCT");
   const [billDiscountValue, setBillDiscountValue] = useState<string>("");
 
-  const [lastInvoice, setLastInvoice] = useState<{
-    number: string;
-    grandTotal: string;
-    subtotal: string;
-    tax: string;
-    discount: string;
-    method: string;
-    date: string;
-    time: string;
-    customerName: string;
-    customerPhone: string;
-    items: Array<{ name: string; sku: string; size: string; color: string; fabric: string; qty: string; rate: string; total: number }>;
-  } | null>(null);
+  const [lastInvoice, setLastInvoice] = useState<InvoiceReceiptData | null>(null);
 
   const [showBillModal, setShowBillModal] = useState(false);
+  const [pdfNotice, setPdfNotice] = useState("");
+  const [receiptShareLink, setReceiptShareLink] = useState("");
+  const [supportsNativeShare, setSupportsNativeShare] = useState(false);
   const [msg, setMsg] = useState("");
   const [isCheckingOut, setIsCheckingOut] = useState(false);
   const [showUpiModal, setShowUpiModal] = useState(false);
@@ -74,17 +75,25 @@ export default function QuickBillPage() {
   }, []);
 
   useEffect(() => {
+    setSupportsNativeShare(canNativeSharePdf());
     if (!getToken()) {
       router.push("/?login=true");
       return;
     }
     searchInput.current?.focus();
+    setCatalog(loadInventoryItems());
     api<FashionProductItem[]>("/products")
       .then((res) => {
         if (res && res.length) {
+          const localStock = loadInventoryItems();
           const merged = res.map((item) => {
+            const localMatch = localStock.find((l) => l.id === item.id || l.sku === item.sku);
             const match = SAMPLE_FASHION_PRODUCTS.find((s) => s.id === item.id || s.name === item.name);
-            return match ? { ...item, imageUrl: match.imageUrl || item.imageUrl } : item;
+            return {
+              ...item,
+              imageUrl: match?.imageUrl || item.imageUrl,
+              stock: localMatch ? localMatch.stock : item.stock,
+            };
           });
           setCatalog(merged);
         }
@@ -210,58 +219,40 @@ export default function QuickBillPage() {
     };
   }, [cart, billDiscountType, billDiscountValue]);
 
-  // Construct Formatted WhatsApp Bill Text
-  const buildWhatsAppMessage = useCallback(
-    (invNumber: string, itemsList: any[], gTotal: string, subTot: string, taxAmt: string, discAmt: string, pMethod: string) => {
-      const dateStr = new Date().toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" });
-      const timeStr = new Date().toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" });
+  // Send formal PDF receipt link via WhatsApp (no auto-download clutter on Desktop!)
+  const handleSendPdfWhatsApp = useCallback((invoiceData: InvoiceReceiptData) => {
+    const { receiptUrl } = sendPdfReceiptViaWhatsApp(invoiceData);
+    setReceiptShareLink(receiptUrl);
+    setPdfNotice(
+      `Formal PDF receipt link opened in WhatsApp for ${invoiceData.customerName} — no file downloaded to your PC.`
+    );
+  }, []);
 
-      const linesText = itemsList
-        .map(
-          (it, i) =>
-            `${i + 1}. *${it.name}*\n   Size: ${it.size} | Color: ${it.color} | Qty: ${it.qty} × ₹${it.rate} = *₹${it.total.toFixed(0)}*`
-        )
-        .join("\n\n");
+  // Native OS share sheet (attaches PDF file directly on mobile/tablet/supported desktop)
+  const handleNativeSharePdf = useCallback(async (invoiceData: InvoiceReceiptData) => {
+    try {
+      const shared = await shareReceiptPdfNative(invoiceData);
+      if (shared) {
+        setPdfNotice(`Formal PDF receipt shared for ${invoiceData.number}.`);
+      }
+    } catch (err) {
+      // User cancelled share sheet; ignore AbortError
+      if ((err as Error)?.name !== "AbortError") {
+        handleSendPdfWhatsApp(invoiceData);
+      }
+    }
+  }, [handleSendPdfWhatsApp]);
 
-      return (
-        `🌸 *BILLVORTEX — BOUTIQUE TAX INVOICE* 🌸\n` +
-        `----------------------------------------\n` +
-        `🧾 *Invoice No:* ${invNumber}\n` +
-        `📅 *Date:* ${dateStr} at ${timeStr}\n` +
-        `👤 *Customer:* ${customerName} (${customerPhone})\n` +
-        `💳 *Payment Mode:* ${pMethod} (SUCCESS - PAID)\n` +
-        `----------------------------------------\n\n` +
-        `🛍️ *ITEMS PURCHASED:*\n\n` +
-        `${linesText}\n\n` +
-        `----------------------------------------\n` +
-        `💰 *Subtotal:* ₹${subTot}\n` +
-        (Number(discAmt) > 0 ? `🏷️ *Discount Applied:* -₹${discAmt}\n` : "") +
-        `🏛️ *Estimated GST:* ₹${taxAmt}\n` +
-        `⭐ *GRAND TOTAL:* *₹${gTotal}*\n` +
-        `----------------------------------------\n` +
-        `🙏 *Thank you for shopping at our boutique!*\n` +
-        `_Exchange available within 7 days with original tag & digital bill._`
-      );
-    },
-    [customerName, customerPhone]
-  );
+  const handleDownloadPdf = useCallback((invoiceData: InvoiceReceiptData) => {
+    const fileName = downloadReceiptPdf(invoiceData);
+    setPdfNotice(`Formal PDF receipt saved as "${fileName}".`);
+  }, []);
 
-  // Send WhatsApp bill directly to customer
-  const sendWhatsAppBill = useCallback(
-    (invNumber: string, itemsList: any[], gTotal: string, subTot: string, taxAmt: string, discAmt: string, pMethod: string) => {
-      const cleanPhone = customerPhone.replace(/\D/g, "");
-      const targetPhone = cleanPhone.length === 10 ? `91${cleanPhone}` : cleanPhone;
-      const msgText = buildWhatsAppMessage(invNumber, itemsList, gTotal, subTot, taxAmt, discAmt, pMethod);
-      const url = `https://wa.me/${targetPhone}?text=${encodeURIComponent(msgText)}`;
-      window.open(url, "_blank");
-    },
-    [customerPhone, buildWhatsAppMessage]
-  );
-
-  // Checkout function - Instantly opens Bill & launches WhatsApp
+  // Checkout function - Instantly opens Bill & sends formal PDF receipt
   const checkout = useCallback(async () => {
     if (!cart.length) return;
     setMsg("");
+    setPdfNotice("");
     setIsCheckingOut(true);
 
     try {
@@ -302,7 +293,7 @@ export default function QuickBillPage() {
       const taxStr = estimatedTax.toFixed(2);
       const discStr = totalDiscount.toFixed(2);
 
-      const invoiceData = {
+      const invoiceData: InvoiceReceiptData = {
         number: invNumber,
         grandTotal: gTotalStr,
         subtotal: subTotStr,
@@ -317,20 +308,33 @@ export default function QuickBillPage() {
       };
 
       setLastInvoice(invoiceData);
+      setReceiptShareLink(buildReceiptShareUrl(invoiceData));
 
-      // Save to localStorage for live Dashboard synchronisation
+      // Save to localStorage for live Dashboard & Billing History synchronisation
       try {
         const existing = JSON.parse(localStorage.getItem("aura_sales_history") || "[]");
-        existing.unshift(invoiceData);
+        existing.unshift({ ...invoiceData, daysAgo: 0, branch: "Bandra Flagship" });
         localStorage.setItem("aura_sales_history", JSON.stringify(existing.slice(0, 100)));
       } catch {}
+
+      // Deduct sold stock live and sync with Stock & Sales
+      setCatalog((prev) => {
+        const updated = prev.map((prod) => {
+          const soldQty = cart
+            .filter((l) => l.product.id === prod.id)
+            .reduce((sum, l) => sum + (Number(l.quantity) || 0), 0);
+          return soldQty > 0 ? { ...prod, stock: Math.max(0, prod.stock - soldQty) } : prod;
+        });
+        saveInventoryItems(updated);
+        return updated;
+      });
 
       // Open Bill Modal
       setShowBillModal(true);
 
-      // Auto-send WhatsApp bill
+      // Auto-generate formal PDF receipt & launch WhatsApp
       if (autoWhatsApp && customerPhone.trim()) {
-        sendWhatsAppBill(invNumber, invoicedItems, gTotalStr, subTotStr, taxStr, discStr, method);
+        handleSendPdfWhatsApp(invoiceData);
       }
 
       setCart([]);
@@ -342,7 +346,7 @@ export default function QuickBillPage() {
     } finally {
       setIsCheckingOut(false);
     }
-  }, [cart, customerPhone, customerName, method, grandTotal, subtotal, estimatedTax, totalDiscount, autoWhatsApp, sendWhatsAppBill]);
+  }, [cart, customerPhone, customerName, method, grandTotal, subtotal, estimatedTax, totalDiscount, autoWhatsApp, handleSendPdfWhatsApp]);
 
   // Keyboard Hotkeys: F2 (Issue), Esc (Clear)
   useEffect(() => {
@@ -1300,7 +1304,7 @@ export default function QuickBillPage() {
                   onChange={(e) => setAutoWhatsApp(e.target.checked)}
                   style={{ accentColor: "#b06354" }}
                 />
-                <span>💬 Send Instant WhatsApp Bill on Checkout</span>
+                <span>📄 Send Formal PDF Receipt via WhatsApp on Checkout</span>
               </label>
             </div>
 
@@ -1410,6 +1414,65 @@ export default function QuickBillPage() {
               </button>
             </div>
 
+            {/* PDF Dispatch Confirmation Banner */}
+            {(pdfNotice || receiptShareLink) && (
+              <div
+                style={{
+                  padding: "10px 12px",
+                  background: "#ecfdf5",
+                  border: "1px solid #a7f3d0",
+                  borderRadius: 8,
+                  marginBottom: 14,
+                  fontSize: 11.5,
+                  color: "#065f46",
+                  fontWeight: 600,
+                  lineHeight: 1.45,
+                }}
+              >
+                <div>📄 {pdfNotice || "1-click hosted formal PDF receipt link is ready to share."}</div>
+                {receiptShareLink && (
+                  <div style={{ display: "flex", gap: 8, marginTop: 8, flexWrap: "wrap" }}>
+                    <a
+                      href={receiptShareLink}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      style={{
+                        fontSize: 11,
+                        fontWeight: 700,
+                        color: "#047857",
+                        background: "#ffffff",
+                        border: "1px solid #a7f3d0",
+                        padding: "4px 10px",
+                        borderRadius: 6,
+                        textDecoration: "none",
+                      }}
+                    >
+                      👁️ Open Hosted Receipt Page ↗
+                    </a>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        navigator.clipboard?.writeText(receiptShareLink);
+                        setPdfNotice("Formal PDF receipt link copied to clipboard!");
+                      }}
+                      style={{
+                        fontSize: 11,
+                        fontWeight: 700,
+                        color: "#261a17",
+                        background: "#ffffff",
+                        border: "1px solid #d1fae5",
+                        padding: "4px 10px",
+                        borderRadius: 6,
+                        cursor: "pointer",
+                      }}
+                    >
+                      📋 Copy Receipt Link
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
+
             {/* Customer Box */}
             <div
               style={{
@@ -1421,6 +1484,8 @@ export default function QuickBillPage() {
                 display: "flex",
                 justifyContent: "space-between",
                 alignItems: "center",
+                gap: 8,
+                flexWrap: "wrap",
               }}
             >
               <div>
@@ -1429,34 +1494,49 @@ export default function QuickBillPage() {
                 <div style={{ fontSize: 11, color: "#695952" }}>{lastInvoice.customerPhone}</div>
               </div>
 
-              <button
-                onClick={() =>
-                  sendWhatsAppBill(
-                    lastInvoice.number,
-                    lastInvoice.items,
-                    lastInvoice.grandTotal,
-                    lastInvoice.subtotal,
-                    lastInvoice.tax,
-                    lastInvoice.discount,
-                    lastInvoice.method
-                  )
-                }
-                style={{
-                  padding: "7px 12px",
-                  borderRadius: 6,
-                  border: "none",
-                  background: "#25D366",
-                  color: "#fff",
-                  fontSize: 11,
-                  fontWeight: 700,
-                  cursor: "pointer",
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 4,
-                }}
-              >
-                <span>💬 WhatsApp</span>
-              </button>
+              <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                {supportsNativeShare && (
+                  <button
+                    onClick={() => handleNativeSharePdf(lastInvoice)}
+                    title="Attach & share PDF file directly via device share sheet"
+                    style={{
+                      padding: "7px 11px",
+                      borderRadius: 6,
+                      border: "1px solid #b06354",
+                      background: "#ffffff",
+                      color: "#b06354",
+                      fontSize: 11,
+                      fontWeight: 700,
+                      cursor: "pointer",
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 4,
+                    }}
+                  >
+                    <span>↗ Share PDF</span>
+                  </button>
+                )}
+
+                <button
+                  onClick={() => handleSendPdfWhatsApp(lastInvoice)}
+                  title="Download formal PDF receipt and open WhatsApp chat"
+                  style={{
+                    padding: "7px 12px",
+                    borderRadius: 6,
+                    border: "none",
+                    background: "#25D366",
+                    color: "#fff",
+                    fontSize: 11,
+                    fontWeight: 700,
+                    cursor: "pointer",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 5,
+                  }}
+                >
+                  <span>📄 Send PDF on WhatsApp</span>
+                </button>
+              </div>
             </div>
 
             {/* Items Table */}
@@ -1532,40 +1612,78 @@ export default function QuickBillPage() {
             </div>
 
             {/* Modal Actions */}
-            <div style={{ display: "flex", gap: 10 }}>
-              <button
-                onClick={printThermalSlip}
-                style={{
-                  flex: 1,
-                  padding: "10px",
-                  borderRadius: 8,
-                  fontSize: 12,
-                  fontWeight: 700,
-                  cursor: "pointer",
-                  border: "1px solid #ebdcd0",
-                  background: "#fbf6f0",
-                  color: "#6e5d57",
-                }}
-              >
-                🖨️ Print Slip
-              </button>
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              <div style={{ display: "flex", gap: 8 }}>
+                <button
+                  onClick={() => handleDownloadPdf(lastInvoice)}
+                  style={{
+                    flex: 1,
+                    padding: "9px 10px",
+                    borderRadius: 8,
+                    fontSize: 12,
+                    fontWeight: 700,
+                    cursor: "pointer",
+                    border: "1px solid #b06354",
+                    background: "#ffffff",
+                    color: "#b06354",
+                  }}
+                >
+                  ⬇ Download PDF
+                </button>
 
-              <button
-                onClick={() => setShowBillModal(false)}
-                style={{
-                  flex: 1.4,
-                  padding: "10px",
-                  fontSize: 13,
-                  fontWeight: 800,
-                  border: "none",
-                  borderRadius: 8,
-                  background: "linear-gradient(135deg, #b06354 0%, #9e5345 100%)",
-                  color: "#fff",
-                  cursor: "pointer",
-                }}
-              >
-                Done / Next Bill
-              </button>
+                <button
+                  onClick={() => previewReceiptPdf(lastInvoice)}
+                  style={{
+                    flex: 1,
+                    padding: "9px 10px",
+                    borderRadius: 8,
+                    fontSize: 12,
+                    fontWeight: 700,
+                    cursor: "pointer",
+                    border: "1px solid #ebdcd0",
+                    background: "#fbf6f0",
+                    color: "#261a17",
+                  }}
+                >
+                  👁️ View / Print PDF
+                </button>
+              </div>
+
+              <div style={{ display: "flex", gap: 8 }}>
+                <button
+                  onClick={printThermalSlip}
+                  style={{
+                    flex: 1,
+                    padding: "9px 10px",
+                    borderRadius: 8,
+                    fontSize: 11.5,
+                    fontWeight: 700,
+                    cursor: "pointer",
+                    border: "1px solid #ebdcd0",
+                    background: "#fbf6f0",
+                    color: "#6e5d57",
+                  }}
+                >
+                  🖨️ Thermal Slip
+                </button>
+
+                <button
+                  onClick={() => setShowBillModal(false)}
+                  style={{
+                    flex: 1.5,
+                    padding: "10px",
+                    fontSize: 13,
+                    fontWeight: 800,
+                    border: "none",
+                    borderRadius: 8,
+                    background: "linear-gradient(135deg, #b06354 0%, #9e5345 100%)",
+                    color: "#fff",
+                    cursor: "pointer",
+                  }}
+                >
+                  Done / Next Bill
+                </button>
+              </div>
             </div>
           </div>
         </div>

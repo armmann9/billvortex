@@ -11,12 +11,12 @@ export default function BillVortexLandingPage() {
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [mode, setMode] = useState<"login" | "register">("login");
   const [f, setF] = useState({
-    email: DEMO_ACCOUNT.email,
-    password: DEMO_ACCOUNT.password,
-    name: DEMO_ACCOUNT.name,
-    businessName: DEMO_ACCOUNT.businessName,
-    stateCode: "08",
-    gstin: "08AAAAA0000A1Z5",
+    email: "",
+    password: "",
+    name: "",
+    businessName: "",
+    stateCode: "27",
+    gstin: "",
   });
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState("");
@@ -24,6 +24,10 @@ export default function BillVortexLandingPage() {
   // Live POS Mockup Interactive State
   const [mockSelectedCategory, setMockSelectedCategory] = useState("All");
   const [openFaq, setOpenFaq] = useState<number | null>(0);
+  const [billingCycle, setBillingCycle] = useState<"monthly" | "yearly">("yearly");
+  const [selectedPlan, setSelectedPlan] = useState<string | null>(null);
+  const [showDemoVideoModal, setShowDemoVideoModal] = useState(false);
+  const [pendingAfterLogin, setPendingAfterLogin] = useState<string>("/pos");
 
   useEffect(() => {
     if (typeof window !== "undefined") {
@@ -51,8 +55,15 @@ export default function BillVortexLandingPage() {
 
   function handleProtectedAction(dest: string) {
     if (typeof window !== "undefined" && localStorage.getItem("token")) {
-      router.push(dest);
+      if (dest === "video") {
+        setShowDemoVideoModal(true);
+      } else {
+        router.push(dest);
+      }
     } else {
+      setPendingAfterLogin(dest);
+      setMode("login");
+      setErr("");
       setShowAuthModal(true);
     }
   }
@@ -62,45 +73,74 @@ export default function BillVortexLandingPage() {
     setErr("");
     setLoading(true);
     try {
+      const emailClean = f.email.trim().toLowerCase();
+      const passClean = f.password;
+
+      if (mode === "login") {
+        // Check authorized Demo ID or previously registered local store accounts
+        let validLocal =
+          emailClean === DEMO_ACCOUNT.email.toLowerCase() && passClean === DEMO_ACCOUNT.password;
+
+        if (!validLocal && typeof window !== "undefined") {
+          try {
+            const savedAccounts: Array<{ email: string; password: string; name?: string }> = JSON.parse(
+              localStorage.getItem("billvortex_registered_accounts") || "[]"
+            );
+            validLocal = savedAccounts.some(
+              (acc) => acc.email.toLowerCase() === emailClean && acc.password === passClean
+            );
+          } catch {}
+        }
+
+        if (!validLocal) {
+          setErr("Invalid Demo ID or password. Please enter your authorized credentials.");
+          setLoading(false);
+          return;
+        }
+      } else {
+        // Save newly registered trial store locally
+        if (typeof window !== "undefined") {
+          try {
+            const savedAccounts = JSON.parse(
+              localStorage.getItem("billvortex_registered_accounts") || "[]"
+            );
+            savedAccounts.push({
+              email: emailClean,
+              password: passClean,
+              name: f.businessName || "Store Manager",
+            });
+            localStorage.setItem("billvortex_registered_accounts", JSON.stringify(savedAccounts));
+          } catch {}
+        }
+      }
+
       const body =
         mode === "login"
-          ? { email: f.email, password: f.password }
-          : { ...f, gstin: f.gstin || undefined };
+          ? { email: emailClean, password: passClean }
+          : { ...f, email: emailClean, gstin: f.gstin || undefined };
+
       const r = await api<{ token: string }>(`/auth/${mode}`, {
         method: "POST",
         body: JSON.stringify(body),
-      });
+      }).catch(() => ({ token: "demo-token" }));
+
       if (typeof window !== "undefined") {
         localStorage.setItem("token", r.token || "demo-token");
-        localStorage.setItem("user_email", f.email || DEMO_ACCOUNT.email);
-        localStorage.setItem("user_name", f.name || DEMO_ACCOUNT.name);
+        localStorage.setItem("user_email", emailClean);
+        localStorage.setItem("user_name", f.businessName || "Store Manager");
       }
+
       setIsLoggedIn(true);
       setShowAuthModal(false);
-      router.push("/pos");
-    } catch {
-      if (typeof window !== "undefined") {
-        localStorage.setItem("token", "demo-token");
-        localStorage.setItem("user_email", f.email || DEMO_ACCOUNT.email);
-        localStorage.setItem("user_name", f.name || DEMO_ACCOUNT.name);
+
+      if (pendingAfterLogin === "video") {
+        setShowDemoVideoModal(true);
+      } else {
+        router.push(pendingAfterLogin || "/pos");
       }
-      setIsLoggedIn(true);
-      setShowAuthModal(false);
-      router.push("/pos");
     } finally {
       setLoading(false);
     }
-  }
-
-  function quickDemoLogin() {
-    if (typeof window !== "undefined") {
-      localStorage.setItem("token", "demo-token");
-      localStorage.setItem("user_email", DEMO_ACCOUNT.email);
-      localStorage.setItem("user_name", DEMO_ACCOUNT.name);
-    }
-    setIsLoggedIn(true);
-    setShowAuthModal(false);
-    router.push("/pos");
   }
 
   return (
@@ -114,37 +154,7 @@ export default function BillVortexLandingPage() {
         overflowX: "hidden",
       }}
     >
-      {/* 1. TOP RIBBON */}
-      <div
-        style={{
-          background: "#f4eee6",
-          borderBottom: "1px solid #ebdcd0",
-          padding: "6px 20px",
-          fontSize: 11,
-          color: "#7e6f69",
-          display: "flex",
-          justifyContent: "center",
-          alignItems: "center",
-          gap: 24,
-          flexWrap: "wrap",
-          letterSpacing: "0.02em",
-          fontWeight: 500,
-        }}
-      >
-        <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
-          <span>🛡️</span> Private by design
-        </span>
-        <span style={{ color: "#d5c5b9" }}>•</span>
-        <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
-          <span>⚡</span> Fast checkout
-        </span>
-        <span style={{ color: "#d5c5b9" }}>•</span>
-        <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
-          <span>👗</span> Built for fashion retail
-        </span>
-      </div>
-
-      {/* 2. TOP NAVBAR */}
+      {/* 1. TOP NAVBAR */}
       <div style={{ maxWidth: 1280, margin: "0 auto", padding: "16px 28px" }}>
         <header
           style={{
@@ -176,17 +186,17 @@ export default function BillVortexLandingPage() {
                 BillVortex
               </div>
               <div style={{ fontSize: 10, color: "#8b7c76", letterSpacing: "0.04em", marginTop: 2, fontWeight: 600 }}>
-                Boutique Billing &amp; POS
+                Multi-Store Retail &amp; POS
               </div>
             </div>
           </Link>
 
-          {/* Center Navigation Links: ONLY Features, About, Services, FAQ */}
+          {/* Center Navigation Links */}
           <nav
             style={{
               display: "flex",
               alignItems: "center",
-              gap: 32,
+              gap: 28,
               fontSize: 13,
               fontWeight: 600,
               color: "#5f534e",
@@ -195,11 +205,14 @@ export default function BillVortexLandingPage() {
             <a href="#features" style={{ color: "#5f534e", textDecoration: "none", transition: "color 0.15s ease" }}>
               Features
             </a>
+            <a href="#industries" style={{ color: "#5f534e", textDecoration: "none", transition: "color 0.15s ease" }}>
+              Industries
+            </a>
+            <a href="#pricing" style={{ color: "#5f534e", textDecoration: "none", transition: "color 0.15s ease" }}>
+              Plans
+            </a>
             <a href="#about" style={{ color: "#5f534e", textDecoration: "none", transition: "color 0.15s ease" }}>
               About
-            </a>
-            <a href="#services" style={{ color: "#5f534e", textDecoration: "none", transition: "color 0.15s ease" }}>
-              Services
             </a>
             <a href="#faq" style={{ color: "#5f534e", textDecoration: "none", transition: "color 0.15s ease" }}>
               FAQ
@@ -261,7 +274,12 @@ export default function BillVortexLandingPage() {
                 </button>
 
                 <button
-                  onClick={() => setShowAuthModal(true)}
+                  onClick={() => {
+                    setPendingAfterLogin("/pos");
+                    setMode("login");
+                    setErr("");
+                    setShowAuthModal(true);
+                  }}
                   style={{
                     background: "linear-gradient(135deg, #b06354 0%, #9e5345 100%)",
                     color: "#ffffff",
@@ -278,7 +296,7 @@ export default function BillVortexLandingPage() {
                     transition: "all 0.15s ease",
                   }}
                 >
-                  <span>⚡ Demo Sign In →</span>
+                  <span>Sign In →</span>
                 </button>
               </>
             )}
@@ -317,7 +335,7 @@ export default function BillVortexLandingPage() {
                 textTransform: "uppercase",
               }}
             >
-              Retail Billing, Reimagined For Fashion
+              Multi-Store Retail, Boutique &amp; General Store POS
             </span>
             <div style={{ width: 44, height: 1, background: "#b06354", opacity: 0.6 }} />
           </div>
@@ -343,12 +361,12 @@ export default function BillVortexLandingPage() {
               fontSize: 16,
               color: "#6b5c56",
               lineHeight: 1.6,
-              maxWidth: 460,
+              maxWidth: 480,
               margin: 0,
               marginBottom: 28,
             }}
           >
-            BillVortex brings billing, size-wise inventory, returns and sales insights into one calm, connected workspace for your boutique.
+            BillVortex brings fast billing, formal PDF GST invoices, smart inventory, multi-branch control, and sales analytics into one calm workspace — built for boutiques, general stores, showrooms, and custom retail setups.
           </p>
 
           {/* CTA Buttons */}
@@ -374,10 +392,7 @@ export default function BillVortexLandingPage() {
             </button>
 
             <button
-              onClick={() => {
-                const el = document.getElementById("about");
-                el?.scrollIntoView({ behavior: "smooth" });
-              }}
+              onClick={() => handleProtectedAction("video")}
               style={{
                 background: "#ffffff",
                 border: "1px solid #e5d8cb",
@@ -393,8 +408,8 @@ export default function BillVortexLandingPage() {
                 boxShadow: "0 2px 8px rgba(0,0,0,0.04)",
               }}
             >
-              <span style={{ color: "#b06354", fontSize: 12 }}>▶</span>
-              <span>See how it works</span>
+              <span style={{ color: "#b06354", fontSize: 12 }}>{isLoggedIn ? "▶" : "🔒"}</span>
+              <span>Watch Demo Video</span>
             </button>
           </div>
 
@@ -633,7 +648,7 @@ export default function BillVortexLandingPage() {
               margin: "8px 0 0",
             }}
           >
-            Everything your boutique needs to run smoothly
+            Everything your retail business needs to run smoothly
           </h2>
         </div>
 
@@ -654,10 +669,10 @@ export default function BillVortexLandingPage() {
               💳
             </div>
             <h3 style={{ fontSize: 16, fontWeight: 700, color: "#261b18", margin: 0, marginBottom: 8 }}>
-              Fast, simple billing
+              Fast billing &amp; PDF receipts
             </h3>
             <p style={{ fontSize: 13, color: "#71635e", lineHeight: 1.5, margin: 0 }}>
-              Add products, apply discounts, calculate GST and complete sales in seconds.
+              Add products, apply discounts, compute GST, and share formal PDF tax receipts in seconds.
             </p>
           </div>
 
@@ -674,19 +689,19 @@ export default function BillVortexLandingPage() {
             }}
           >
             <div style={{ width: 44, height: 44, borderRadius: "50%", background: "#fbf3ef", display: "flex", alignItems: "center", justifyContent: "center", color: "#b06354", fontSize: 20, marginBottom: 14 }}>
-              👗
+              📦
             </div>
             <h3 style={{ fontSize: 16, fontWeight: 700, color: "#261b18", margin: 0, marginBottom: 8 }}>
-              Size &amp; colour inventory
+              Smart stock &amp; variant tracking
             </h3>
             <p style={{ fontSize: 13, color: "#71635e", lineHeight: 1.5, margin: 0 }}>
-              Track stock by size and colour so you never run out of your best sellers.
+              Track sizes, colours, fabrics, barcodes, batch/MRP items, and low-stock alerts across outlets.
             </p>
           </div>
 
           {/* Card 3 */}
           <div
-            onClick={() => handleProtectedAction("/pos")}
+            onClick={() => handleProtectedAction("/dashboard")}
             style={{
               background: "#ffffff",
               border: "1px solid #ede3d8",
@@ -697,13 +712,13 @@ export default function BillVortexLandingPage() {
             }}
           >
             <div style={{ width: 44, height: 44, borderRadius: "50%", background: "#fbf3ef", display: "flex", alignItems: "center", justifyContent: "center", color: "#b06354", fontSize: 20, marginBottom: 14 }}>
-              🔄
+              🏪
             </div>
             <h3 style={{ fontSize: 16, fontWeight: 700, color: "#261b18", margin: 0, marginBottom: 8 }}>
-              Returns &amp; exchanges
+              Multi-store &amp; branch control
             </h3>
             <p style={{ fontSize: 13, color: "#71635e", lineHeight: 1.5, margin: 0 }}>
-              Handle returns, exchanges and refunds with ease and keep your records accurate.
+              Run multiple boutiques, general stores, or warehouses under one unified owner dashboard.
             </p>
           </div>
 
@@ -723,12 +738,385 @@ export default function BillVortexLandingPage() {
               📊
             </div>
             <h3 style={{ fontSize: 16, fontWeight: 700, color: "#261b18", margin: 0, marginBottom: 8 }}>
-              Sales &amp; GST reports
+              Sales, profit &amp; GST reports
             </h3>
             <p style={{ fontSize: 13, color: "#71635e", lineHeight: 1.5, margin: 0 }}>
-              Get clear insights into your sales, profit, stock and tax details with simple reports.
+              Get real-time sales velocity, GSTR-1 exports, Z-reports, and payment reconciliation in one click.
             </p>
           </div>
+        </div>
+      </section>
+
+      {/* 4B. SECTION: INDUSTRIES & MULTI-STORE FLEXIBILITY */}
+      <section id="industries" style={{ maxWidth: 1280, margin: "76px auto 0", padding: "0 28px" }}>
+        <div style={{ textAlign: "center", marginBottom: 36 }}>
+          <span style={{ fontSize: 11, fontWeight: 800, color: "#b06354", letterSpacing: "0.1em", textTransform: "uppercase" }}>
+            Not Just For One Boutique — Built For Every Retail Format
+          </span>
+          <h2
+            style={{
+              fontFamily: "'Playfair Display', Georgia, serif",
+              fontSize: 34,
+              fontWeight: 700,
+              color: "#261b18",
+              letterSpacing: "-0.02em",
+              margin: "8px 0 0",
+            }}
+          >
+            One Platform. Every Store Format.
+          </h2>
+          <p style={{ fontSize: 14, color: "#7a6e69", maxWidth: 660, margin: "10px auto 0", lineHeight: 1.6 }}>
+            Whether you manage multiple fashion boutiques, a busy neighborhood general store, or a custom multi-category showroom, BillVortex adapts to your exact catalog, billing units, and GST slabs.
+          </p>
+        </div>
+
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))", gap: 18 }}>
+          {[
+            {
+              icon: "👗",
+              title: "Fashion Boutiques & Multi-Branch Showrooms",
+              badge: "Live Demo Loaded",
+              desc: "Manage multiple boutique branches with size/color/fabric matrices, bridal order tracking, alteration notes, and centralized stock transfers.",
+            },
+            {
+              icon: "🛒",
+              title: "General Stores, Kirana & Supermarkets",
+              badge: "High-Speed Barcode",
+              desc: "Rapid MRP & barcode billing, loose weight/quantity units (KG, PCS, BOX, LTR), batch & expiry alerts, and instant thermal or PDF receipts.",
+            },
+            {
+              icon: "🧵",
+              title: "Textile, Saree & Garment Wholesalers",
+              badge: "B2B + B2C Ready",
+              desc: "Track unstitched fabric meterage & rolls, party-wise GSTIN invoicing, credit days, supplier mills, and automated Khata ledger recovery.",
+            },
+            {
+              icon: "👠",
+              title: "Footwear, Cosmetics & Lifestyle Retail",
+              badge: "Variant Matrix",
+              desc: "Organize products by brand, shade, shoe size, or combo pack with seasonal offer presets, barcode sticker printing, and loyalty tracking.",
+            },
+            {
+              icon: "🏬",
+              title: "Multi-Outlet & Franchise Chains",
+              badge: "Central Control",
+              desc: "Monitor live sales across all locations from one owner screen, compare branch performance, and enforce cashier discount limits by role.",
+            },
+            {
+              icon: "⚙️",
+              title: "Custom Store Setup (As Per Requirement)",
+              badge: "Tailored Onboarding",
+              desc: "Need custom invoice formats, specialized GST/HSN rules, or industry-specific fields (electronics, gifts, pharmacy, hardware)? We configure it for you.",
+            },
+          ].map((ind) => (
+            <div
+              key={ind.title}
+              style={{
+                background: "#ffffff",
+                border: "1px solid #ebdcd0",
+                borderRadius: 16,
+                padding: "22px 22px",
+                boxShadow: "0 2px 10px rgba(92, 57, 48, 0.04)",
+                display: "flex",
+                flexDirection: "column",
+                justifyContent: "space-between",
+              }}
+            >
+              <div>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+                  <div
+                    style={{
+                      width: 44,
+                      height: 44,
+                      borderRadius: 12,
+                      background: "#fbf3ef",
+                      border: "1px solid #f0dfd4",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      fontSize: 21,
+                    }}
+                  >
+                    {ind.icon}
+                  </div>
+                  <span
+                    style={{
+                      fontSize: 10,
+                      fontWeight: 700,
+                      padding: "3px 9px",
+                      borderRadius: 12,
+                      background: "#faf4ee",
+                      color: "#b06354",
+                      border: "1px solid #ebdcd0",
+                    }}
+                  >
+                    {ind.badge}
+                  </span>
+                </div>
+                <h3 style={{ fontFamily: "'Playfair Display', Georgia, serif", fontSize: 17, fontWeight: 700, color: "#261a17", margin: "0 0 8px" }}>
+                  {ind.title}
+                </h3>
+                <p style={{ fontSize: 13, color: "#71635e", lineHeight: 1.55, margin: 0 }}>{ind.desc}</p>
+              </div>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      {/* 4C. SECTION: PRICING PLANS (PRO, PRO+, ULTRA) */}
+      <section id="pricing" style={{ maxWidth: 1200, margin: "80px auto 0", padding: "0 28px" }}>
+        <div style={{ textAlign: "center", marginBottom: 32 }}>
+          <span style={{ fontSize: 11, fontWeight: 800, color: "#b06354", letterSpacing: "0.1em", textTransform: "uppercase" }}>
+            Transparent Retail Plans
+          </span>
+          <h2
+            style={{
+              fontFamily: "'Playfair Display', Georgia, serif",
+              fontSize: 36,
+              fontWeight: 700,
+              color: "#261b18",
+              letterSpacing: "-0.02em",
+              margin: "8px 0 0",
+            }}
+          >
+            Choose the Right Plan for Your Store
+          </h2>
+          <p style={{ fontSize: 14, color: "#7a6e69", maxWidth: 580, margin: "10px auto 22px" }}>
+            Start with a 14-day free trial. Upgrade anytime as you add counters, staff, or new branches.
+          </p>
+
+          {/* Monthly / Yearly Toggle */}
+          <div
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              background: "#efe6dc",
+              padding: 4,
+              borderRadius: 30,
+              border: "1px solid #e4d4c6",
+              gap: 4,
+            }}
+          >
+            <button
+              type="button"
+              onClick={() => setBillingCycle("monthly")}
+              style={{
+                padding: "7px 18px",
+                borderRadius: 24,
+                border: "none",
+                cursor: "pointer",
+                fontSize: 12,
+                fontWeight: 700,
+                background: billingCycle === "monthly" ? "#ffffff" : "transparent",
+                color: billingCycle === "monthly" ? "#261a17" : "#7a6e69",
+                boxShadow: billingCycle === "monthly" ? "0 2px 6px rgba(0,0,0,0.08)" : "none",
+              }}
+            >
+              Monthly
+            </button>
+            <button
+              type="button"
+              onClick={() => setBillingCycle("yearly")}
+              style={{
+                padding: "7px 18px",
+                borderRadius: 24,
+                border: "none",
+                cursor: "pointer",
+                fontSize: 12,
+                fontWeight: 700,
+                background: billingCycle === "yearly" ? "#b06354" : "transparent",
+                color: billingCycle === "yearly" ? "#ffffff" : "#7a6e69",
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 6,
+                boxShadow: billingCycle === "yearly" ? "0 2px 8px rgba(176,99,84,0.3)" : "none",
+              }}
+            >
+              <span>Yearly</span>
+              <span
+                style={{
+                  fontSize: 10,
+                  padding: "1px 6px",
+                  borderRadius: 10,
+                  background: billingCycle === "yearly" ? "rgba(255,255,255,0.22)" : "#ecfdf5",
+                  color: billingCycle === "yearly" ? "#ffffff" : "#059669",
+                  fontWeight: 800,
+                }}
+              >
+                Save 20%
+              </span>
+            </button>
+          </div>
+        </div>
+
+        {/* 3 Plan Cards: Pro, Pro+, Ultra */}
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))", gap: 22, alignItems: "stretch" }}>
+          {[
+            {
+              name: "Pro",
+              subtitle: "Ideal for single boutiques, general stores & retail shops",
+              monthly: 799,
+              yearly: 639,
+              highlight: false,
+              badge: "Starter Retail",
+              cta: "Start Pro Free Trial →",
+              features: [
+                "1 Store / Outlet & 2 Cashier Logins",
+                "Unlimited Invoices & Formal A4 PDF Receipts",
+                "WhatsApp PDF Dispatch & Thermal Slip Print",
+                "Inventory & Low-Stock Alerts (up to 2,500 SKUs)",
+                "Auto GST Engine (0% / 5% / 12% / 18%) + GSTR-1 CSV",
+                "Customer Khata Ledger & Balance Reminders",
+                "Day-End Z-Report & Payment Mode Audit",
+              ],
+            },
+            {
+              name: "Pro+",
+              subtitle: "Built for multi-branch boutiques, busy marts & showrooms",
+              monthly: 1499,
+              yearly: 1199,
+              highlight: true,
+              badge: "Most Popular",
+              cta: "Choose Pro+ Plan →",
+              features: [
+                "Up to 3 Stores / Branches & 10 Staff Logins",
+                "Everything in Pro + Unlimited SKUs & Variants",
+                "Multi-Branch Stock Transfers & Consolidated View",
+                "Supplier / Fabric Mill Directory & Purchase Orders",
+                "Advanced Sales Velocity, Margin & Peak-Hour Analytics",
+                "Role-Based Permissions & Cashier Discount Caps",
+                "Priority Onboarding, WhatsApp & Phone Support",
+              ],
+            },
+            {
+              name: "Ultra",
+              subtitle: "For retail chains, wholesalers & custom store requirements",
+              monthly: 2999,
+              yearly: 2399,
+              highlight: false,
+              badge: "Enterprise & Custom",
+              cta: "Launch Ultra Suite →",
+              features: [
+                "Unlimited Stores / Franchises & Unlimited Staff",
+                "Everything in Pro+ + Custom Industry Workflow Setup",
+                "Official WhatsApp Business API Auto-PDF Delivery",
+                "Custom Branded PDF Letterhead & Barcode Labels",
+                "Tally / Busy Accounting Sync & Full Audit Trail",
+                "Multi-Warehouse & B2B Wholesale Credit Controls",
+                "Dedicated Account Manager & 24×7 Priority SLA",
+              ],
+            },
+          ].map((plan) => {
+            const price = billingCycle === "yearly" ? plan.yearly : plan.monthly;
+            return (
+              <div
+                key={plan.name}
+                style={{
+                  background: plan.highlight
+                    ? "linear-gradient(180deg, #ffffff 0%, #fdf7f3 100%)"
+                    : "#ffffff",
+                  border: plan.highlight ? "2px solid #b06354" : "1px solid #ebdcd0",
+                  borderRadius: 20,
+                  padding: "28px 26px",
+                  boxShadow: plan.highlight
+                    ? "0 20px 44px rgba(176, 99, 84, 0.16)"
+                    : "0 4px 16px rgba(92, 57, 48, 0.05)",
+                  display: "flex",
+                  flexDirection: "column",
+                  justifyContent: "space-between",
+                  position: "relative",
+                }}
+              >
+                <div>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+                    <h3
+                      style={{
+                        fontFamily: "'Playfair Display', Georgia, serif",
+                        fontSize: 26,
+                        fontWeight: 800,
+                        color: "#261a17",
+                        margin: 0,
+                      }}
+                    >
+                      {plan.name}
+                    </h3>
+                    <span
+                      style={{
+                        fontSize: 10,
+                        fontWeight: 800,
+                        padding: "4px 10px",
+                        borderRadius: 14,
+                        textTransform: "uppercase",
+                        letterSpacing: "0.05em",
+                        background: plan.highlight ? "#b06354" : "#fbf3ef",
+                        color: plan.highlight ? "#ffffff" : "#b06354",
+                        border: plan.highlight ? "none" : "1px solid #ebdcd0",
+                      }}
+                    >
+                      {plan.badge}
+                    </span>
+                  </div>
+
+                  <p style={{ fontSize: 12.5, color: "#7a6e69", margin: "0 0 18px", lineHeight: 1.5 }}>
+                    {plan.subtitle}
+                  </p>
+
+                  <div style={{ display: "flex", alignItems: "baseline", gap: 6, marginBottom: 4 }}>
+                    <span
+                      style={{
+                        fontFamily: "'Playfair Display', Georgia, serif",
+                        fontSize: 38,
+                        fontWeight: 800,
+                        color: "#261a17",
+                      }}
+                    >
+                      ₹{price.toLocaleString("en-IN")}
+                    </span>
+                    <span style={{ fontSize: 13, color: "#7a6e69", fontWeight: 600 }}>/ month</span>
+                  </div>
+                  <div style={{ fontSize: 11, color: "#9a8b84", marginBottom: 20 }}>
+                    {billingCycle === "yearly"
+                      ? `Billed ₹${(price * 12).toLocaleString("en-IN")} yearly (Save ₹${((plan.monthly - plan.yearly) * 12).toLocaleString("en-IN")}/yr)`
+                      : "Billed monthly • Cancel or switch anytime"}
+                  </div>
+
+                  <div style={{ borderTop: "1px solid #efe5db", paddingTop: 18, display: "flex", flexDirection: "column", gap: 10, marginBottom: 24 }}>
+                    {plan.features.map((feat) => (
+                      <div key={feat} style={{ display: "flex", alignItems: "flex-start", gap: 9, fontSize: 12.5, color: "#4a3c36", lineHeight: 1.45 }}>
+                        <span style={{ color: "#16a34a", fontWeight: 800, fontSize: 13 }}>✓</span>
+                        <span>{feat}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSelectedPlan(`${plan.name} (₹${price.toLocaleString("en-IN")}/mo)`);
+                    setMode("register");
+                    setShowAuthModal(true);
+                  }}
+                  style={{
+                    width: "100%",
+                    padding: "12px 16px",
+                    borderRadius: 12,
+                    border: plan.highlight ? "none" : "1px solid #b06354",
+                    background: plan.highlight
+                      ? "linear-gradient(135deg, #b06354 0%, #9e5345 100%)"
+                      : "#ffffff",
+                    color: plan.highlight ? "#ffffff" : "#b06354",
+                    fontSize: 13,
+                    fontWeight: 800,
+                    cursor: "pointer",
+                    boxShadow: plan.highlight ? "0 6px 18px rgba(176, 99, 84, 0.32)" : "none",
+                  }}
+                >
+                  {plan.cta}
+                </button>
+              </div>
+            );
+          })}
         </div>
       </section>
 
@@ -762,9 +1150,9 @@ export default function BillVortexLandingPage() {
               marginBottom: 18,
             }}
           >
-            <span>🌸 LUXURY BOUTIQUE POS</span>
+            <span>🏪 MULTI-STORE RETAIL POS</span>
             <span>•</span>
-            <span>TEXTILE &amp; APPAREL SUITE</span>
+            <span>BOUTIQUES, GENERAL STORES &amp; CUSTOM SETUPS</span>
           </div>
 
           <h2
@@ -782,8 +1170,8 @@ export default function BillVortexLandingPage() {
             What is <span style={{ color: "#b06354" }}>BillVortex</span>?
           </h2>
 
-          <p style={{ fontSize: 16, color: "#6e5d57", lineHeight: 1.6, maxWidth: 820, margin: 0, marginBottom: 26 }}>
-            BillVortex is a high-speed, hybrid Point-of-Sale (POS) and boutique management platform engineered specifically for women&apos;s fashion boutiques, apparel designers, saree showrooms, and textile retail houses.
+          <p style={{ fontSize: 16, color: "#6e5d57", lineHeight: 1.6, maxWidth: 840, margin: 0, marginBottom: 26 }}>
+            BillVortex is a high-speed Point-of-Sale (POS) and multi-store retail management platform built for Indian businesses — from single &amp; multi-branch fashion boutiques and textile showrooms to general stores, supermarkets, and custom retail setups tailored to your exact workflow.
           </p>
 
           <div style={{ display: "flex", gap: 14, flexWrap: "wrap" }}>
@@ -833,23 +1221,23 @@ export default function BillVortexLandingPage() {
               marginBottom: 20,
             }}
           >
-            Boutique Capabilities &amp; Design Architecture
+            Multi-Store Capabilities &amp; Retail Architecture
           </h3>
 
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))", gap: 20 }}>
             <div style={boutiqueCardStyle}>
-              <div style={{ fontSize: 28, marginBottom: 12 }}>⚡</div>
-              <h4 style={cardHeadingStyle}>Instant Quick Bill &amp; WhatsApp Dispatch</h4>
+              <div style={{ fontSize: 28, marginBottom: 12 }}>📄</div>
+              <h4 style={cardHeadingStyle}>Formal PDF Tax Invoices &amp; WhatsApp</h4>
               <p style={cardTextStyle}>
-                Generate compliant bills in under 5 seconds with quick hotkeys. Instantly formats an elegant digital tax invoice sent straight to the customer&apos;s WhatsApp with zero paper waste.
+                Generate GST-compliant A4 PDF receipts with your store letterhead, GSTIN, tax split, and amount in words in under 5 seconds — ready to share on WhatsApp, download, or print.
               </p>
             </div>
 
             <div style={boutiqueCardStyle}>
-              <div style={{ fontSize: 28, marginBottom: 12 }}>👗</div>
-              <h4 style={cardHeadingStyle}>Apparel &amp; Fashion-First Catalog</h4>
+              <div style={{ fontSize: 28, marginBottom: 12 }}>🏪</div>
+              <h4 style={cardHeadingStyle}>Boutiques, General Stores &amp; Multi-Branch</h4>
               <p style={cardTextStyle}>
-                Built for fashion retailers. Displays high-resolution individual apparel photography, garment names directly underneath, sizes (XS–XXL, Free Size), colors, fabrics, and live stock counts.
+                Adaptable catalog engine supporting fashion sizes/colors/fabrics, general store barcodes &amp; MRP packs, loose weight/meterage units, and multi-outlet stock transfers.
               </p>
             </div>
 
@@ -857,15 +1245,15 @@ export default function BillVortexLandingPage() {
               <div style={{ fontSize: 28, marginBottom: 12 }}>🏛️</div>
               <h4 style={cardHeadingStyle}>Deterministic Indian GST Engine</h4>
               <p style={cardTextStyle}>
-                Automates GST compliance. Automatically splits CGST &amp; SGST (2.5% + 2.5% on garments below ₹1,000; 6% + 6% on luxury items over ₹1,000) and exports GSTR-1 reconciliations.
+                Automates GST compliance across 0%, 5%, 12%, and 18% slabs with exact CGST/SGST/IGST splits, one-click GSTR-1 CSV files, and downloadable Day-End Z-Report PDFs.
               </p>
             </div>
 
             <div style={boutiqueCardStyle}>
               <div style={{ fontSize: 28, marginBottom: 12 }}>🏷️</div>
-              <h4 style={cardHeadingStyle}>Flexible Discounts &amp; Seasonal Offers</h4>
+              <h4 style={cardHeadingStyle}>Flexible Discounts &amp; Cashier Controls</h4>
               <p style={cardTextStyle}>
-                Apply store discounts directly on the bill using flat rupee amounts (₹) or percentages (%), with instant preset quick buttons (5%, 10%, 15%, ₹100, ₹250) for fast cashier checkout.
+                Apply item-level or bill-level discounts in flat rupees (₹) or percentage (%) with preset buttons and role-based cashier discount approval limits.
               </p>
             </div>
 
@@ -873,15 +1261,15 @@ export default function BillVortexLandingPage() {
               <div style={{ fontSize: 28, marginBottom: 12 }}>👥</div>
               <h4 style={cardHeadingStyle}>Customer Khata &amp; Receivables Ledger</h4>
               <p style={cardTextStyle}>
-                Manage boutique patron directories, track outstanding store credit balances, and dispatch polite WhatsApp balance reminders with one click.
+                Manage walk-in VIPs, regular general store accounts, and B2B wholesale buyers with live balances, payment recording, and polite WhatsApp reminders.
               </p>
             </div>
 
             <div style={boutiqueCardStyle}>
               <div style={{ fontSize: 28, marginBottom: 12 }}>🚚</div>
-              <h4 style={cardHeadingStyle}>Supplier &amp; Textile Mill Directory</h4>
+              <h4 style={cardHeadingStyle}>Supplier, Mill &amp; Distributor Directory</h4>
               <p style={cardTextStyle}>
-                Organize textile mills, handloom weavers, and embroidery artisans from Surat, Jaipur, Lucknow, and Varanasi, including credit terms and instant WhatsApp requisition chats.
+                Track textile mills, FMCG distributors, and wholesalers with GSTIN, credit terms, accounts payable, purchase requisitions, and on-time dispatch tracking.
               </p>
             </div>
           </div>
@@ -892,7 +1280,7 @@ export default function BillVortexLandingPage() {
       <section id="services" style={{ maxWidth: 1280, margin: "72px auto 0", padding: "0 28px" }}>
         <div style={{ textAlign: "center", marginBottom: 36 }}>
           <span style={{ fontSize: 11, fontWeight: 800, color: "#b06354", letterSpacing: "0.1em", textTransform: "uppercase" }}>
-            Tailored For Modern Boutiques
+            Tailored As Per Your Store Requirement
           </span>
           <h2
             style={{
@@ -904,35 +1292,35 @@ export default function BillVortexLandingPage() {
               margin: "8px 0 0",
             }}
           >
-            Comprehensive Services &amp; Solutions
+            Comprehensive Retail Services &amp; Solutions
           </h2>
-          <p style={{ fontSize: 14, color: "#7a6e69", maxWidth: 600, margin: "10px auto 0" }}>
-            End-to-end retail features designed specifically for Indian apparel designers, saree retailers, and textile showrooms.
+          <p style={{ fontSize: 14, color: "#7a6e69", maxWidth: 640, margin: "10px auto 0" }}>
+            End-to-end POS, inventory, and GST automation engineered for fashion boutiques, multi-branch showrooms, general stores, and growing Indian retail businesses.
           </p>
         </div>
 
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))", gap: 20 }}>
           <div style={serviceCardStyle}>
             <div style={serviceIconBadgeStyle}>🧾</div>
-            <h3 style={serviceTitleStyle}>High-Speed Touch POS &amp; Cashier Desk</h3>
+            <h3 style={serviceTitleStyle}>High-Speed Touch POS &amp; Barcode Desk</h3>
             <p style={serviceDescStyle}>
-              Intuitive touch-ready catalog grid with instant barcode search, one-key hotkeys (F2), and multi-tender splits for UPI, Cash, Cards, and Customer Store Credit.
+              Intuitive touch-ready catalog grid with instant barcode/SKU search, keyboard hotkeys (F2), and multi-tender support for UPI QR, Cash, Cards, and Khata Credit.
             </p>
           </div>
 
           <div style={serviceCardStyle}>
             <div style={serviceIconBadgeStyle}>📦</div>
-            <h3 style={serviceTitleStyle}>Size, Color &amp; Meterage Inventory</h3>
+            <h3 style={serviceTitleStyle}>Flexible Multi-Category Inventory</h3>
             <p style={serviceDescStyle}>
-              Track ready-made apparel across adult sizes (XS-XXL), numeric waist fits, colors, and unstitched fabric rolls (MTR) with automated reorder alerts.
+              Track sizes, colors, and fabric rolls (MTR) for boutiques or MRP packs, weights (KG/LTR), and batch stock for general stores with automated low-stock alerts.
             </p>
           </div>
 
           <div style={serviceCardStyle}>
-            <div style={serviceIconBadgeStyle}>💬</div>
-            <h3 style={serviceTitleStyle}>WhatsApp Digital Tax Receipts</h3>
+            <div style={serviceIconBadgeStyle}>📄</div>
+            <h3 style={serviceTitleStyle}>Formal PDF Receipts &amp; WhatsApp</h3>
             <p style={serviceDescStyle}>
-              Eliminate expensive thermal paper rolls and faulty printers. Automatically dispatch compliant, beautifully formatted bills directly to your customer&apos;s WhatsApp.
+              Automatically generate crisp A4 PDF Tax Invoices with store branding, GSTIN, and Amount in Words — share directly on WhatsApp or print via A4 &amp; thermal printers.
             </p>
           </div>
 
@@ -940,7 +1328,7 @@ export default function BillVortexLandingPage() {
             <div style={serviceIconBadgeStyle}>🏛️</div>
             <h3 style={serviceTitleStyle}>Indian GST Calculation &amp; GSTR-1</h3>
             <p style={serviceDescStyle}>
-              Exact GST Council compliant split (5% on garments ≤ ₹1,000, 12% on garments &gt; ₹1,000). Generate one-click GSTR-1 audit CSV files ready for your accountant.
+              Automatic multi-slab GST computation (0%, 5%, 12%, 18%) with CGST/SGST splits, downloadable GSTR-1 CSV reports, and formal Day-End Z-Reports for your CA.
             </p>
           </div>
 
@@ -948,15 +1336,15 @@ export default function BillVortexLandingPage() {
             <div style={serviceIconBadgeStyle}>👥</div>
             <h3 style={serviceTitleStyle}>Customer Khata &amp; Credit Ledger</h3>
             <p style={serviceDescStyle}>
-              Maintain individual customer balance ledgers, set credit limits for VIP patrons, and send polite automated WhatsApp balance reminder notifications.
+              Maintain individual customer credit accounts, monitor lifetime spend and overdue balances, record partial settlements, and send one-click WhatsApp reminders.
             </p>
           </div>
 
           <div style={serviceCardStyle}>
             <div style={serviceIconBadgeStyle}>🚚</div>
-            <h3 style={serviceTitleStyle}>Artisan &amp; Textile Mill Requisitions</h3>
+            <h3 style={serviceTitleStyle}>Suppliers, Mills &amp; Purchase Orders</h3>
             <p style={serviceDescStyle}>
-              Connect with weavers and mills across Surat, Jaipur, Lucknow, and Varanasi. Manage credit terms, delivery schedules, and direct fabric swatch inquiries.
+              Manage vendors, textile mills, and wholesalers with GSTIN, credit days, pending shipments, and direct purchase requisitions from one procurement ledger.
             </p>
           </div>
         </div>
@@ -978,38 +1366,42 @@ export default function BillVortexLandingPage() {
               margin: "8px 0 0",
             }}
           >
-            Frequently Asked Questions
+            Customer FAQs for BillVortex
           </h2>
           <p style={{ fontSize: 14, color: "#7a6e69", margin: "10px auto 0" }}>
-            Everything you need to know about Demo Access, Billing, Inventory, and GST.
+            Everything you need to know about pricing, free trials, GST invoicing, and store setup.
           </p>
         </div>
 
         <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
           {[
             {
-              q: "How do I sign in using the Demo Account to test the system?",
-              a: `Aap Demo credentials use karke sign in kar sakte hain:\n• Email / ID: demo@billvortex.com\n• Password: demo123\nYa fir top right me diye gaye '⚡ Demo Sign In' button par click karke turant enter kar sakte hain. Isme saara dummy fashion catalog (18 garments with photos), inventory counts aur sales history pehle se loaded hai!`,
+              q: "How much does BillVortex cost?",
+              a: "BillVortex offers three transparent plans designed for every stage of retail growth:\n• Pro — ₹799/month (or ₹639/mo billed yearly): Ideal for single boutiques, general stores, and retail shops with unlimited PDF billing, GST reports, and Khata.\n• Pro+ — ₹1,499/month (or ₹1,199/mo billed yearly): Built for up to 3 branches with unlimited SKUs, supplier & purchase order management, and advanced analytics.\n• Ultra — ₹2,999/month (or ₹2,399/mo billed yearly): Unlimited branches, custom store workflows tailored to your business, Tally sync, and dedicated 24×7 support.\nThere are no hidden setup charges, and you can upgrade or switch plans anytime.",
             },
             {
-              q: "Why does it ask for Sign In before opening POS or Inventory?",
-              a: "Boutique ki sales, customer khata balances, inventory stock, aur GST tax reports confidential hote hain. Isliye bina Sign In ke direct access band kiya gaya hai taaki sirf authorized store manager ya cashier hi bill bana sake.",
+              q: "Can I try BillVortex before purchasing?",
+              a: "Yes! Every new store gets a full-featured 14-day free trial with no credit card required. Request your personal Demo Login ID from our team to explore the live interactive workspace — including quick billing, formal PDF receipts, inventory updates, supplier tracking, and GST reports.",
             },
             {
-              q: "How does paperless WhatsApp digital billing work?",
-              a: "Bill banate samay customer ka phone number enter karein. Checkout hote hi BillVortex customer ke WhatsApp par ek sundar digital tax invoice send kar deta hai. Isse thermal paper aur printer ka kharcha bilkul bach jata hai.",
+              q: "Is BillVortex suitable for my small shop?",
+              a: "Absolutely. BillVortex is designed to feel effortless for a single-counter boutique, neighborhood general store, kirana shop, or garment outlet — while still having the power to scale to multiple branches as you grow. It runs smoothly on any regular Windows laptop, desktop, or tablet with no expensive POS hardware required.",
             },
             {
-              q: "Does BillVortex support size, color, and fabric tracking?",
-              a: "Haan! Ye specially fashion aur textile showrooms ke liye design kiya gaya hai. Aap har garment ka size (XS-XXL, waist sizes), color, fabric composition (Pure Silk, Rayon, Cotton, Georgette), aur stock quantity alag-alag track kar sakte hain.",
+              q: "Can I create GST invoices using BillVortex?",
+              a: "Yes. BillVortex includes an automated Indian GST engine supporting 0%, 5%, 12%, and 18% slabs (including apparel threshold rules of 5% up to ₹1,000 and 12% above ₹1,000). Every bill automatically calculates CGST & SGST, generates a formal A4 PDF Tax Invoice with your GSTIN, HSN summary, and Amount in Words, and exports one-click GSTR-1 CSV reports for your CA.",
             },
             {
-              q: "How does Indian GST calculation work for apparel?",
-              a: "Indian GST Council ke rules ke hisaab se ₹1,000 se kam ke kapdo par 5% GST (2.5% CGST + 2.5% SGST) aur ₹1,000 se upar ke items par 12% GST (6% CGST + 6% SGST) automatic calculate hota hai. Aap 1-click me GSTR-1 CSV report download kar sakte hain.",
+              q: "Do I need accounting knowledge to use BillVortex?",
+              a: "Not at all. BillVortex is built for store owners and billing counter staff, not accountants. Creating a bill takes under 5 seconds by tapping items or scanning barcodes — tax splits, discounts, stock deductions, and Day-End Z-Reports are all calculated automatically in plain, easy-to-understand summaries.",
             },
             {
-              q: "Can I run BillVortex on my store laptop with start.bat?",
-              a: "Bilkul! Bas project folder me diye gaye 'start.bat' file par double click karein. Server automatic start ho jayega aur browser me http://localhost:3000 par poora POS counter chalne lagega.",
+              q: "Can BillVortex handle multiple boutiques, general stores, or custom business types?",
+              a: "Yes. Even though our live demo showcases a fashion boutique catalog, BillVortex is fully configurable for multi-branch boutiques, general stores, supermarkets, saree wholesalers, footwear shops, cosmetics, and custom retail setups. We configure categories, units (PCS, KG, MTR, BOX), tax slabs, and invoice branding as per your requirement.",
+            },
+            {
+              q: "How are formal PDF receipts sent to customers on WhatsApp?",
+              a: "On checkout, BillVortex generates a formal, print-ready A4 PDF Tax Invoice carrying your store letterhead, GSTIN, itemized breakdown, and tax totals. You can immediately dispatch the PDF via WhatsApp, share it directly from mobile/tablet POS devices, download it, or print a formal A4 / thermal copy.",
             },
           ].map((item, idx) => {
             const isOpen = openFaq === idx;
@@ -1081,15 +1473,16 @@ export default function BillVortexLandingPage() {
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
             <span style={{ fontSize: 20 }}>🌸</span>
             <div>
-              <div style={{ fontSize: 15, fontWeight: 800, color: "#261a17" }}>BillVortex Boutique POS</div>
-              <div style={{ fontSize: 11, color: "#8e7f78" }}>Aura Fashion &amp; Textile Suite • Demo Edition 2.4.0</div>
+              <div style={{ fontSize: 15, fontWeight: 800, color: "#261a17" }}>BillVortex Retail &amp; POS Suite</div>
+              <div style={{ fontSize: 11, color: "#8e7f78" }}>Boutiques • General Stores • Multi-Branch Retail • v2.5</div>
             </div>
           </div>
 
           <div style={{ display: "flex", gap: 24, fontSize: 12, fontWeight: 600, color: "#6e5d57" }}>
             <a href="#features" style={{ color: "#6e5d57", textDecoration: "none" }}>Features</a>
+            <a href="#industries" style={{ color: "#6e5d57", textDecoration: "none" }}>Industries</a>
+            <a href="#pricing" style={{ color: "#6e5d57", textDecoration: "none" }}>Plans</a>
             <a href="#about" style={{ color: "#6e5d57", textDecoration: "none" }}>About</a>
-            <a href="#services" style={{ color: "#6e5d57", textDecoration: "none" }}>Services</a>
             <a href="#faq" style={{ color: "#6e5d57", textDecoration: "none" }}>FAQ</a>
           </div>
 
@@ -1099,7 +1492,86 @@ export default function BillVortexLandingPage() {
         </div>
       </footer>
 
-      {/* 9. AUTHENTICATION & LOGIN MODAL (With Demo Account Highlights) */}
+      {/* 9. DEMO VIDEO PLAYER MODAL */}
+      {showDemoVideoModal && (
+        <div
+          onClick={() => setShowDemoVideoModal(false)}
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(38, 27, 24, 0.78)",
+            backdropFilter: "blur(6px)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            zIndex: 110,
+            padding: 20,
+          }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              width: 960,
+              maxWidth: "100%",
+              background: "#1c1412",
+              borderRadius: 18,
+              overflow: "hidden",
+              border: "1px solid #4a352f",
+              boxShadow: "0 28px 70px rgba(0,0,0,0.45)",
+            }}
+          >
+            <div
+              style={{
+                padding: "14px 20px",
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+                borderBottom: "1px solid rgba(255,255,255,0.1)",
+              }}
+            >
+              <div>
+                <div style={{ fontSize: 15, fontWeight: 700, color: "#ffffff" }}>
+                  BillVortex Full Product Walkthrough (1080p HD)
+                </div>
+                <div style={{ fontSize: 11.5, color: "#c9b5aa" }}>
+                  POS Counter • Formal PDF Receipts • Multi-Branch Dashboard • Stock, Suppliers, Khata &amp; GST
+                </div>
+              </div>
+              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <a
+                  href="/demo/BillVortex_Demo_Video.mp4"
+                  download="BillVortex_Demo_Video.mp4"
+                  style={{
+                    padding: "6px 12px",
+                    borderRadius: 8,
+                    background: "#b06354",
+                    color: "#ffffff",
+                    fontSize: 11.5,
+                    fontWeight: 700,
+                    textDecoration: "none",
+                  }}
+                >
+                  ⬇ Download MP4
+                </a>
+                <button
+                  onClick={() => setShowDemoVideoModal(false)}
+                  style={{ background: "transparent", border: "none", color: "#c9b5aa", fontSize: 22, cursor: "pointer" }}
+                >
+                  ✕
+                </button>
+              </div>
+            </div>
+            <video
+              src="/demo/BillVortex_Demo_Video.mp4"
+              controls
+              autoPlay
+              style={{ width: "100%", maxHeight: "75vh", display: "block", background: "#000" }}
+            />
+          </div>
+        </div>
+      )}
+
+      {/* 10. AUTHENTICATION & LOGIN MODAL (With Demo Account Highlights) */}
       {showAuthModal && (
         <div
           style={{
@@ -1130,10 +1602,14 @@ export default function BillVortexLandingPage() {
                 <span style={{ fontSize: 22 }}>🌸</span>
                 <div>
                   <h3 style={{ fontFamily: "'Playfair Display', Georgia, serif", fontSize: 20, fontWeight: 700, color: "#261a17", margin: 0 }}>
-                    {mode === "login" ? "Boutique Sign In" : "Register Store"}
+                    {mode === "login" ? "Store Sign In" : "Start Free Trial"}
                   </h3>
                   <div style={{ fontSize: 11, color: "#8e7f78", marginTop: 2 }}>
-                    Sign in required to access POS &amp; Inventory
+                    {pendingAfterLogin === "video"
+                      ? "Sign in with your authorized ID to watch the private demo video"
+                      : selectedPlan
+                      ? `Selected Plan: ${selectedPlan}`
+                      : "Sign in with your Store / Demo ID to access POS & Reports"}
                   </div>
                 </div>
               </div>
@@ -1144,55 +1620,6 @@ export default function BillVortexLandingPage() {
                 ✕
               </button>
             </div>
-
-            {/* DEMO CREDENTIALS HIGHLIGHT BOX */}
-            <div
-              style={{
-                background: "#fdf8f4",
-                border: "1px dashed #b06354",
-                borderRadius: 12,
-                padding: "12px 14px",
-                marginBottom: 16,
-              }}
-            >
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                <span style={{ fontSize: 11, fontWeight: 800, color: "#b06354", textTransform: "uppercase", letterSpacing: "0.04em" }}>
-                  ✨ Demo Account Details:
-                </span>
-                <span style={{ fontSize: 10, background: "#fbf3ef", padding: "1px 6px", borderRadius: 4, color: "#b06354", fontWeight: 700 }}>
-                  Pre-filled
-                </span>
-              </div>
-              <div style={{ fontSize: 12, color: "#261a17", marginTop: 6, display: "flex", flexDirection: "column", gap: 2 }}>
-                <div><strong>Email:</strong> <code style={{ color: "#b06354" }}>{DEMO_ACCOUNT.email}</code></div>
-                <div><strong>Password:</strong> <code style={{ color: "#b06354" }}>{DEMO_ACCOUNT.password}</code></div>
-              </div>
-            </div>
-
-            {/* ONE-CLICK DEMO BUTTON */}
-            <button
-              type="button"
-              onClick={quickDemoLogin}
-              style={{
-                width: "100%",
-                padding: "11px",
-                borderRadius: 10,
-                border: "none",
-                background: "linear-gradient(135deg, #b06354 0%, #9e5345 100%)",
-                color: "#ffffff",
-                fontSize: 13,
-                fontWeight: 700,
-                cursor: "pointer",
-                marginBottom: 16,
-                boxShadow: "0 4px 12px rgba(176, 99, 84, 0.3)",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                gap: 8,
-              }}
-            >
-              <span>⚡ One-Click Demo Sign In</span>
-            </button>
 
             {/* Switch Tabs */}
             <div
@@ -1237,7 +1664,7 @@ export default function BillVortexLandingPage() {
                   boxShadow: mode === "register" ? "0 2px 6px rgba(0,0,0,0.08)" : "none",
                 }}
               >
-                New Boutique
+                New Store
               </button>
             </div>
 
@@ -1317,18 +1744,25 @@ export default function BillVortexLandingPage() {
               <button
                 type="submit"
                 style={{
-                  padding: "11px",
-                  borderRadius: 8,
-                  border: "1px solid #ebdcd0",
-                  background: "#ffffff",
-                  color: "#261a17",
+                  padding: "12px",
+                  borderRadius: 10,
+                  border: "none",
+                  background: "linear-gradient(135deg, #b06354 0%, #9e5345 100%)",
+                  color: "#ffffff",
                   fontSize: 13,
                   fontWeight: 700,
                   cursor: "pointer",
                   marginTop: 4,
+                  boxShadow: "0 4px 12px rgba(176, 99, 84, 0.3)",
                 }}
               >
-                {loading ? "Authenticating..." : mode === "login" ? "Enter POS Counter →" : "Register Business →"}
+                {loading
+                  ? "Authenticating..."
+                  : mode === "login"
+                  ? pendingAfterLogin === "video"
+                    ? "Sign In & Watch Demo Video →"
+                    : "Sign In to Workspace →"
+                  : "Create Trial Store →"}
               </button>
             </form>
           </div>

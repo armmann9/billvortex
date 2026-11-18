@@ -10,6 +10,11 @@ import {
   STYLE_ATTRIBUTES,
   FashionProductItem,
 } from "../../lib/fashionCatalog";
+import {
+  SKU_MONTHLY_SALES,
+  loadInventoryItems,
+  saveInventoryItems,
+} from "../../lib/demoData";
 import Sidebar from "../components/Sidebar";
 
 export default function InventoryPage() {
@@ -45,12 +50,17 @@ export default function InventoryPage() {
       router.push("/?login=true");
       return;
     }
+    setItems(loadInventoryItems());
   }, [router]);
 
   function adjustStock(id: string, delta: number) {
-    setItems((prev) =>
-      prev.map((item) => (item.id === id ? { ...item, stock: Math.max(0, item.stock + delta) } : item))
-    );
+    setItems((prev) => {
+      const next = prev.map((item) =>
+        item.id === id ? { ...item, stock: Math.max(0, item.stock + delta) } : item
+      );
+      saveInventoryItems(next);
+      return next;
+    });
   }
 
   function handleAddItem(e: React.FormEvent) {
@@ -80,7 +90,11 @@ export default function InventoryPage() {
       pattern: form.pattern,
     };
 
-    setItems((prev) => [newItem, ...prev]);
+    setItems((prev) => {
+      const next = [newItem, ...prev];
+      saveInventoryItems(next);
+      return next;
+    });
     setShowAddModal(false);
     setForm({
       name: "",
@@ -126,8 +140,16 @@ export default function InventoryPage() {
   });
 
   const totalStockVal = items.reduce((sum, item) => sum + item.stock * Number(item.salePrice || 0), 0);
+  const totalCostVal = items.reduce((sum, item) => sum + item.stock * Number(item.costPrice || 0), 0);
   const totalUnits = items.reduce((sum, item) => sum + item.stock, 0);
   const lowStockCount = items.filter((i) => i.stock <= i.lowStockThreshold).length;
+  const total30dUnits = items.reduce((sum, i) => sum + (SKU_MONTHLY_SALES[i.sku] ?? 12), 0);
+  const total30dRevenue = items.reduce(
+    (sum, i) => sum + (SKU_MONTHLY_SALES[i.sku] ?? 12) * Number(i.salePrice || 0),
+    0
+  );
+  const avgMarginPct =
+    totalStockVal > 0 ? Math.round(((totalStockVal - totalCostVal) / totalStockVal) * 100) : 48;
 
   return (
     <div style={{ height: "100vh", display: "flex", overflow: "hidden", background: "#faf7f2", color: "#261a17", fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
@@ -159,10 +181,10 @@ export default function InventoryPage() {
                 <span style={{ fontSize: 28 }}>🌸</span>
                 <div>
                   <h1 style={{ fontFamily: "'Playfair Display', Georgia, serif", fontSize: 26, fontWeight: 700, color: "#261a17", letterSpacing: "-0.02em", margin: 0 }}>
-                    Fashion Inventory & Stock Master
+                    Stock, Inventory &amp; Sales Velocity
                   </h1>
                   <p style={{ fontSize: 13, color: "#7a6e69", marginTop: 4 }}>
-                    Boutique apparel catalog • Sizes, Fabrics, Colors & Real-Time Stock Count
+                    Live catalog master • Sizes, fabrics, margins, 30-day sales velocity &amp; real-time stock control
                   </p>
                 </div>
               </div>
@@ -235,6 +257,26 @@ export default function InventoryPage() {
               </div>
               <div style={{ fontSize: 12, color: "#9a8b84", marginTop: 4 }}>
                 Active boutique merchandise
+              </div>
+            </div>
+
+            <div
+              style={{
+                background: "#ffffff",
+                border: "1px solid #ebdcd0",
+                borderRadius: 16,
+                padding: "18px 22px",
+                boxShadow: "0 2px 8px rgba(92, 57, 48, 0.05)",
+              }}
+            >
+              <div style={{ fontSize: 12, color: "#7a6e69", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.04em" }}>
+                30-Day Sales Turnover
+              </div>
+              <div style={{ fontSize: 26, fontWeight: 800, color: "#16a34a", marginTop: 6, fontFamily: "'Playfair Display', Georgia, serif" }}>
+                ₹{total30dRevenue.toLocaleString("en-IN")}
+              </div>
+              <div style={{ fontSize: 12, color: "#9a8b84", marginTop: 4 }}>
+                {total30dUnits} units sold • Avg Margin {avgMarginPct}%
               </div>
             </div>
 
@@ -352,8 +394,9 @@ export default function InventoryPage() {
                   <th style={{ ...cell, color: "#7a6e69", fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em" }}>Size</th>
                   <th style={{ ...cell, color: "#7a6e69", fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em" }}>Color</th>
                   <th style={{ ...cell, color: "#7a6e69", fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em" }}>Fabric</th>
-                  <th style={{ ...cell, color: "#7a6e69", fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em" }}>Cost</th>
-                  <th style={{ ...cell, color: "#7a6e69", fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em" }}>MRP / Sale</th>
+                  <th style={{ ...cell, color: "#7a6e69", fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em" }}>Cost / Margin</th>
+                  <th style={{ ...cell, color: "#7a6e69", fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em" }}>Sale / GST</th>
+                  <th style={{ ...cell, color: "#7a6e69", fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em" }}>30d Sold</th>
                   <th style={{ ...cell, color: "#7a6e69", fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em" }}>Stock</th>
                   <th style={{ ...cell, color: "#7a6e69", fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em", textAlign: "right" }}>Adjust</th>
                 </tr>
@@ -361,13 +404,17 @@ export default function InventoryPage() {
               <tbody>
                 {filteredItems.length === 0 ? (
                   <tr>
-                    <td colSpan={9} style={{ padding: 48, textAlign: "center", color: "#9a8b84" }}>
+                    <td colSpan={10} style={{ padding: 48, textAlign: "center", color: "#9a8b84" }}>
                       No inventory garments found matching your filter.
                     </td>
                   </tr>
                 ) : (
                   filteredItems.map((item) => {
                     const isLow = item.stock <= item.lowStockThreshold;
+                    const sold30d = SKU_MONTHLY_SALES[item.sku] ?? 12;
+                    const saleNum = Number(item.salePrice || 0);
+                    const costNum = Number(item.costPrice || 0);
+                    const marginPct = saleNum > 0 ? Math.round(((saleNum - costNum) / saleNum) * 100) : 0;
                     return (
                       <tr
                         key={item.id}
@@ -451,11 +498,19 @@ export default function InventoryPage() {
 
                         <td style={cell}>
                           <span style={{ fontSize: 13, color: "#7a6e69" }}>₹{item.costPrice}</span>
+                          <div style={{ fontSize: 10, color: "#059669", fontWeight: 700 }}>{marginPct}% margin</div>
                         </td>
 
                         <td style={cell}>
                           <span style={{ fontSize: 14, fontWeight: 700, color: "#261a17" }}>₹{item.salePrice}</span>
                           <div style={{ fontSize: 10, color: "#9a8b84" }}>+{item.gstRate}% GST</div>
+                        </td>
+
+                        <td style={cell}>
+                          <div style={{ fontSize: 13, fontWeight: 700, color: "#261a17" }}>{sold30d} {item.unit}</div>
+                          <div style={{ fontSize: 10, color: "#b06354", fontWeight: 600 }}>
+                            ₹{(sold30d * saleNum).toLocaleString("en-IN")}
+                          </div>
                         </td>
 
                         <td style={cell}>

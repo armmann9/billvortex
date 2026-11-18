@@ -5,71 +5,24 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { getToken } from "../../lib/api";
 import { SAMPLE_FASHION_PRODUCTS, FashionProductItem } from "../../lib/fashionCatalog";
+import {
+  ExtendedInvoiceRecord,
+  loadInventoryItems,
+  loadSalesHistory,
+} from "../../lib/demoData";
+import {
+  previewReceiptPdf,
+  sendPdfReceiptViaWhatsApp,
+} from "../../lib/pdfReceipt";
 import Sidebar from "../components/Sidebar";
 
-type InvoiceRecord = {
-  number: string;
-  grandTotal: string;
-  subtotal: string;
-  tax: string;
-  discount: string;
-  method: string;
-  date: string;
-  time: string;
-  customerName: string;
-  customerPhone: string;
-  items: Array<{ name: string; sku: string; size: string; color: string; fabric: string; qty: string; rate: string; total: number }>;
-};
-
-const DEFAULT_RECENT_INVOICES: InvoiceRecord[] = [
-  {
-    number: "INV-928401",
-    grandTotal: "2499.00",
-    subtotal: "2499.00",
-    tax: "124.95",
-    discount: "0.00",
-    method: "UPI",
-    date: new Date().toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" }),
-    time: "10:45 AM",
-    customerName: "Pooja Sharma",
-    customerPhone: "+91 98765 43210",
-    items: [{ name: "Banarasi Style Saree", sku: "WET003", size: "Free", color: "Maroon", fabric: "Silk Blend", qty: "1", rate: "2499", total: 2499 }],
-  },
-  {
-    number: "INV-928400",
-    grandTotal: "3398.00",
-    subtotal: "3798.00",
-    tax: "169.90",
-    discount: "400.00",
-    method: "CASH",
-    date: new Date().toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" }),
-    time: "10:18 AM",
-    customerName: "Ananya Verma",
-    customerPhone: "+91 98200 55412",
-    items: [
-      { name: "Floral Anarkali Suit", sku: "WET002", size: "L", color: "Pink", fabric: "Rayon", qty: "1", rate: "1899", total: 1899 },
-      { name: "High-Rise Wide-Leg Jeans", sku: "WFW001", size: "30", color: "Blue", fabric: "Denim", qty: "1", rate: "1499", total: 1499 },
-    ],
-  },
-  {
-    number: "INV-928399",
-    grandTotal: "1199.00",
-    subtotal: "1199.00",
-    tax: "59.95",
-    discount: "0.00",
-    method: "CARD",
-    date: new Date().toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" }),
-    time: "09:50 AM",
-    customerName: "Kavita Rao",
-    customerPhone: "+91 94140 33219",
-    items: [{ name: "Women's Linen Shirt", sku: "WFW002", size: "M", color: "White", fabric: "Linen Blend", qty: "1", rate: "1199", total: 1199 }],
-  },
-];
+type InvoiceRecord = ExtendedInvoiceRecord;
 
 export default function DashboardPage() {
   const router = useRouter();
   const [catalog, setCatalog] = useState<FashionProductItem[]>(SAMPLE_FASHION_PRODUCTS);
-  const [salesHistory, setSalesHistory] = useState<InvoiceRecord[]>(DEFAULT_RECENT_INVOICES);
+  const [salesHistory, setSalesHistory] = useState<InvoiceRecord[]>([]);
+  const [selectedBranch, setSelectedBranch] = useState<string>("ALL");
 
   useEffect(() => {
     if (!getToken()) {
@@ -77,22 +30,19 @@ export default function DashboardPage() {
       return;
     }
 
-    try {
-      const stored = localStorage.getItem("aura_sales_history");
-      if (stored) {
-        const parsed: InvoiceRecord[] = JSON.parse(stored);
-        if (Array.isArray(parsed) && parsed.length > 0) {
-          const combined = [...parsed];
-          DEFAULT_RECENT_INVOICES.forEach((d) => {
-            if (!combined.some((c) => c.number === d.number)) {
-              combined.push(d);
-            }
-          });
-          setSalesHistory(combined);
-        }
-      }
-    } catch {}
+    setCatalog(loadInventoryItems());
+    setSalesHistory(loadSalesHistory());
   }, [router]);
+
+  const branchFilteredSales = useMemo(() => {
+    if (selectedBranch === "ALL") return salesHistory;
+    return salesHistory.filter((inv) => (inv.branch || "Bandra Flagship") === selectedBranch);
+  }, [salesHistory, selectedBranch]);
+
+  const todaySalesList = useMemo(
+    () => branchFilteredSales.filter((inv) => (inv.daysAgo ?? 0) === 0),
+    [branchFilteredSales]
+  );
 
   const { totalUnitsInStock, lowStockCount } = useMemo(() => {
     let units = 0;
@@ -112,12 +62,13 @@ export default function DashboardPage() {
   }, [catalog]);
 
   const { todaySalesTotal, todayOrdersCount, avgTicketSize } = useMemo(() => {
+    const source = todaySalesList.length > 0 ? todaySalesList : branchFilteredSales;
     let total = 0;
-    salesHistory.forEach((inv) => {
+    source.forEach((inv) => {
       total += Number(inv.grandTotal) || 0;
     });
 
-    const count = salesHistory.length;
+    const count = source.length;
     const avg = count > 0 ? total / count : 0;
 
     return {
@@ -125,7 +76,7 @@ export default function DashboardPage() {
       todayOrdersCount: count,
       avgTicketSize: avg,
     };
-  }, [salesHistory]);
+  }, [todaySalesList, branchFilteredSales]);
 
   const categoryStats = useMemo(() => {
     const map = new Map<string, { count: number; stock: number; color: string }>();
@@ -165,10 +116,7 @@ export default function DashboardPage() {
   }
 
   function resendWhatsApp(inv: InvoiceRecord) {
-    const clean = inv.customerPhone.replace(/\D/g, "");
-    const target = clean.length === 10 ? `91${clean}` : clean;
-    const text = `🌸 *BILLVORTEX BOUTIQUE — TAX INVOICE* 🌸\n🧾 Bill No: ${inv.number}\n📅 Date: ${inv.date} at ${inv.time}\n👤 Customer: ${inv.customerName}\n💰 Total Paid: ₹${inv.grandTotal} (${inv.method})\n\nThank you for visiting BillVortex Boutique!`;
-    window.open(`https://wa.me/${target}?text=${encodeURIComponent(text)}`, "_blank");
+    sendPdfReceiptViaWhatsApp(inv);
   }
 
   return (
@@ -202,8 +150,30 @@ export default function DashboardPage() {
               </div>
             </div>
 
-            {/* Header Actions */}
-            <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
+            {/* Header Actions + Multi-Branch Switcher */}
+            <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+              <select
+                value={selectedBranch}
+                onChange={(e) => setSelectedBranch(e.target.value)}
+                aria-label="Select Store Branch"
+                style={{
+                  padding: "8px 14px",
+                  background: "#ffffff",
+                  border: "1px solid #ebdcd0",
+                  color: "#261a17",
+                  borderRadius: 20,
+                  fontSize: 12,
+                  fontWeight: 700,
+                  cursor: "pointer",
+                  outline: "none",
+                }}
+              >
+                <option value="ALL">🏪 All Branches (3 Outlets)</option>
+                <option value="Bandra Flagship">📍 Bandra Flagship</option>
+                <option value="Andheri Studio">📍 Andheri Studio</option>
+                <option value="Thane Retail Hub">📍 Thane Retail Hub</option>
+              </select>
+
               <button
                 onClick={exportGstr1Csv}
                 style={{
@@ -383,10 +353,10 @@ export default function DashboardPage() {
                 </div>
 
                 <Link
-                  href="/reports"
+                  href="/reports?tab=HISTORY"
                   style={{ fontSize: 12, color: "#b06354", textDecoration: "none", fontWeight: 700 }}
                 >
-                  View All &rarr;
+                  Full Billing History &rarr;
                 </Link>
               </div>
 
@@ -410,7 +380,7 @@ export default function DashboardPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {salesHistory.slice(0, 6).map((inv, idx) => (
+                    {branchFilteredSales.slice(0, 7).map((inv, idx) => (
                       <tr
                         key={inv.number + idx}
                         style={{
@@ -466,22 +436,40 @@ export default function DashboardPage() {
                         </td>
 
                         <td style={{ ...cell, textAlign: "center" }}>
-                          <button
-                            onClick={() => resendWhatsApp(inv)}
-                            title="Resend WhatsApp Bill"
-                            style={{
-                              padding: "4px 8px",
-                              borderRadius: 6,
-                              border: "none",
-                              background: "#25D366",
-                              color: "#fff",
-                              fontSize: 11,
-                              fontWeight: 700,
-                              cursor: "pointer",
-                            }}
-                          >
-                            💬 Send
-                          </button>
+                          <div style={{ display: "inline-flex", gap: 6, alignItems: "center" }}>
+                            <button
+                              onClick={() => previewReceiptPdf(inv)}
+                              title="View / Download Formal PDF Receipt"
+                              style={{
+                                padding: "4px 8px",
+                                borderRadius: 6,
+                                border: "1px solid #ebdcd0",
+                                background: "#faf6f1",
+                                color: "#261a17",
+                                fontSize: 11,
+                                fontWeight: 700,
+                                cursor: "pointer",
+                              }}
+                            >
+                              📄 PDF
+                            </button>
+                            <button
+                              onClick={() => resendWhatsApp(inv)}
+                              title="Download Formal PDF Receipt & Send on WhatsApp"
+                              style={{
+                                padding: "4px 8px",
+                                borderRadius: 6,
+                                border: "none",
+                                background: "#25D366",
+                                color: "#fff",
+                                fontSize: 11,
+                                fontWeight: 700,
+                                cursor: "pointer",
+                              }}
+                            >
+                              💬 Send PDF
+                            </button>
+                          </div>
                         </td>
                       </tr>
                     ))}

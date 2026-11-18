@@ -48,9 +48,9 @@ export default function AboutPage() {
                 marginBottom: 18,
               }}
             >
-              <span>🌸 LUXURY BOUTIQUE POS</span>
+              <span>🏪 MULTI-STORE RETAIL POS</span>
               <span>•</span>
-              <span>TEXTILE & APPAREL SUITE</span>
+              <span>BOUTIQUES, GENERAL STORES &amp; CUSTOM SETUPS</span>
             </div>
 
             <h1
@@ -68,8 +68,8 @@ export default function AboutPage() {
               What is <span style={{ color: "#b06354" }}>BillVortex</span>?
             </h1>
 
-            <p style={{ fontSize: 16, color: "#6e5d57", lineHeight: 1.6, maxWidth: 780, margin: 0, marginBottom: 26 }}>
-              BillVortex is a high-speed, hybrid Point-of-Sale (POS) and boutique management platform engineered specifically for women&apos;s fashion boutiques, apparel designers, saree showrooms, and textile retail houses.
+            <p style={{ fontSize: 16, color: "#6e5d57", lineHeight: 1.6, maxWidth: 820, margin: 0, marginBottom: 26 }}>
+              BillVortex is a high-speed Point-of-Sale (POS) and multi-store retail management platform engineered for Indian businesses — supporting multiple fashion boutiques, general stores, supermarkets, textile showrooms, and custom retail setups tailored as per your requirement.
             </p>
 
             <div style={{ display: "flex", gap: 14, flexWrap: "wrap" }}>
@@ -120,7 +120,7 @@ export default function AboutPage() {
                 marginBottom: 20,
               }}
             >
-              Boutique Capabilities & Design Architecture
+              Multi-Store Capabilities &amp; Retail Architecture
             </h2>
 
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))", gap: 20 }}>
@@ -256,9 +256,9 @@ export default function AboutPage() {
             }}
           >
             <div>
-              <div style={{ fontSize: 14, fontWeight: 700, color: "#261a17" }}>BillVortex Edition: 2.4.0 (Boutique Edition)</div>
+              <div style={{ fontSize: 14, fontWeight: 700, color: "#261a17" }}>BillVortex Suite v2.5 (Pro / Pro+ / Ultra)</div>
               <div style={{ fontSize: 12, color: "#7a6e69", marginTop: 2 }}>
-                Next.js 14 App Router • Express REST API • Prisma ORM • PostgreSQL Ready
+                Multi-Branch Retail POS • Formal PDF GST Engine • Inventory &amp; Supplier Control
               </div>
             </div>
 

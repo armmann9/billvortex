@@ -3,123 +3,26 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { getToken } from "../../lib/api";
+import {
+  INITIAL_PURCHASE_ORDERS,
+  INITIAL_SUPPLIERS_DATA,
+  PurchaseOrderRecord,
+  SupplierProfile,
+} from "../../lib/demoData";
 import Sidebar from "../components/Sidebar";
 
-type Supplier = {
-  id: string;
-  name: string;
-  category: string;
-  contactPerson: string;
-  phone: string;
-  email: string;
-  city: string;
-  gstin: string;
-  creditDays: number;
-  payable: number;
-  status: "Active" | "Pending Orders" | "On Hold";
-  rating: number;
-  materials: string[];
-};
-
-const INITIAL_SUPPLIERS: Supplier[] = [
-  {
-    id: "sup-1",
-    name: "Surat Silk Mills & Weavers",
-    category: "Pure Silk & Brocade",
-    contactPerson: "Rajeshbhai Patel",
-    phone: "+91 98251 44520",
-    email: "orders@suratsilkmills.in",
-    city: "Surat, Gujarat",
-    gstin: "24AAACS1234F1Z5",
-    creditDays: 30,
-    payable: 145000,
-    status: "Active",
-    rating: 4.9,
-    materials: ["Banarasi Silk", "Chanderi Fabric", "Zari Borders"],
-  },
-  {
-    id: "sup-2",
-    name: "Jaipur Handblock Tex",
-    category: "Cotton & Natural Dyes",
-    contactPerson: "Mahesh Sharma",
-    phone: "+91 94140 88219",
-    email: "mahesh@jaipurhandblock.com",
-    city: "Jaipur, Rajasthan",
-    gstin: "08BBAPJ8765E1Z3",
-    creditDays: 45,
-    payable: 68500,
-    status: "Active",
-    rating: 4.8,
-    materials: ["Bagru Print Cotton", "Mulmul Muslin", "Dabu Indigo"],
-  },
-  {
-    id: "sup-3",
-    name: "Lucknow Chikan Artisans Guild",
-    category: "Embroidery & Zardozi",
-    contactPerson: "Shabana Begum",
-    phone: "+91 91980 33412",
-    email: "guild@lucknowchikan.org",
-    city: "Lucknow, Uttar Pradesh",
-    gstin: "09CCAPL4321D1Z1",
-    creditDays: 30,
-    payable: 32000,
-    status: "Pending Orders",
-    rating: 4.9,
-    materials: ["Bakhiya Threadwork", "Tepchi Kurtas", "Mukaish Work"],
-  },
-  {
-    id: "sup-4",
-    name: "Varanasi Heritage Handlooms",
-    category: "Bridal & Heritage Silks",
-    contactPerson: "Anand Upadhyay",
-    phone: "+91 94500 12890",
-    email: "anand@varanasiheritage.co",
-    city: "Varanasi, UP",
-    gstin: "09DDEPV9876C1Z9",
-    creditDays: 60,
-    payable: 210000,
-    status: "Active",
-    rating: 5.0,
-    materials: ["Katan Silk Sarees", "Real Gold Zari", "Tanchoi Brocade"],
-  },
-  {
-    id: "sup-5",
-    name: "Surat Laces & Trims Corp",
-    category: "Laces, Elastics & Trims",
-    contactPerson: "Kirit Vora",
-    phone: "+91 98980 77123",
-    email: "sales@suratlaces.in",
-    city: "Surat, Gujarat",
-    gstin: "24EEAPL6543B1Z7",
-    creditDays: 21,
-    payable: 18400,
-    status: "Active",
-    rating: 4.6,
-    materials: ["Gota Patti Ribbons", "Sequin Latkans", "Velvet Pipings"],
-  },
-  {
-    id: "sup-6",
-    name: "Kanchipuram Weaver Society",
-    category: "South Silk Sarees",
-    contactPerson: "K. Ramanathan",
-    phone: "+91 94440 99876",
-    email: "info@kanchisociety.tn.gov",
-    city: "Kanchipuram, TN",
-    gstin: "33FFAPK1122A1Z4",
-    creditDays: 30,
-    payable: 95000,
-    status: "Pending Orders",
-    rating: 4.9,
-    materials: ["Pure Mulberry Silk", "Korvai Weaving", "Temple Borders"],
-  },
-];
+type Supplier = SupplierProfile;
 
 export default function SuppliersPage() {
   const router = useRouter();
-  const [suppliers, setSuppliers] = useState<Supplier[]>(INITIAL_SUPPLIERS);
+  const [suppliers, setSuppliers] = useState<Supplier[]>(INITIAL_SUPPLIERS_DATA);
+  const [purchaseOrders, setPurchaseOrders] = useState<PurchaseOrderRecord[]>(INITIAL_PURCHASE_ORDERS);
   const [search, setSearch] = useState("");
   const [selectedCategory, setSelectedCategory] = useState("ALL");
   const [showAddModal, setShowAddModal] = useState(false);
+  const [reqSupplier, setReqSupplier] = useState<Supplier | null>(null);
+  const [reqForm, setReqForm] = useState({ material: "", quantity: "50 MTR", amount: "45000", expectedDate: "In 4 days" });
+  const [poToast, setPoToast] = useState("");
   const [newSupplier, setNewSupplier] = useState({
     name: "",
     category: "Pure Silk & Brocade",
@@ -165,7 +68,47 @@ export default function SuppliersPage() {
   });
 
   const totalPayable = suppliers.reduce((sum, s) => sum + s.payable, 0);
-  const pendingOrdersCount = suppliers.filter((s) => s.status === "Pending Orders").length;
+  const totalYtdPurchases = suppliers.reduce((sum, s) => sum + s.ytdPurchases, 0);
+  const pendingOrdersCount = purchaseOrders.filter((po) => po.status !== "Received").length;
+
+  function openRequisitionModal(sup: Supplier) {
+    setReqSupplier(sup);
+    setReqForm({
+      material: sup.materials[0] || sup.category,
+      quantity: "40 PCS",
+      amount: "48000",
+      expectedDate: "In 4 days",
+    });
+  }
+
+  function handleCreateRequisition(e: React.FormEvent) {
+    e.preventDefault();
+    if (!reqSupplier) return;
+    const poNo = `PO-2611-${Math.floor(420 + Math.random() * 500)}`;
+    const amt = Number(reqForm.amount) || 0;
+    const newPo: PurchaseOrderRecord = {
+      poNumber: poNo,
+      supplierId: reqSupplier.id,
+      supplierName: reqSupplier.name,
+      material: reqForm.material,
+      quantity: reqForm.quantity,
+      amount: amt,
+      orderDate: new Date().toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" }),
+      expectedDate: reqForm.expectedDate,
+      status: "Confirmed",
+    };
+    setPurchaseOrders((prev) => [newPo, ...prev]);
+    setSuppliers((prev) =>
+      prev.map((s) =>
+        s.id === reqSupplier.id
+          ? { ...s, status: "Pending Orders", activePoNo: poNo, lastOrderDate: newPo.orderDate, payable: s.payable + amt }
+          : s
+      )
+    );
+    setPoToast(`Purchase Order ${poNo} created for ${reqSupplier.name} (₹${amt.toLocaleString("en-IN")}).`);
+    setTimeout(() => setPoToast(""), 4500);
+    setReqSupplier(null);
+  }
 
   function handleAddSupplier(e: React.FormEvent) {
     e.preventDefault();
@@ -182,8 +125,12 @@ export default function SuppliersPage() {
       gstin: newSupplier.gstin || "27ABCDE1234F1Z5",
       creditDays: Number(newSupplier.creditDays) || 30,
       payable: Number(newSupplier.payable) || 0,
+      ytdPurchases: Number(newSupplier.payable) || 125000,
+      onTimePct: 97,
+      lastOrderDate: new Date().toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" }),
+      activePoNo: `PO-2611-${Math.floor(420 + Math.random() * 400)}`,
       status: "Active",
-      rating: 5.0,
+      rating: 4.9,
       materials: newSupplier.materials ? newSupplier.materials.split(",").map((m) => m.trim()) : ["Fabrics & Textiles"],
     };
 
@@ -341,16 +288,33 @@ export default function SuppliersPage() {
               }}
             >
               <div style={{ fontSize: 12, color: "#7a6e69", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.04em" }}>
-                Average Credit Period
+                YTD Mill Procurement
               </div>
               <div style={{ fontSize: 26, fontWeight: 800, color: "#16a34a", marginTop: 6, fontFamily: "'Playfair Display', Georgia, serif" }}>
-                35 Days
+                ₹{(totalYtdPurchases / 100000).toFixed(1)}L
               </div>
               <div style={{ fontSize: 12, color: "#9a8b84", marginTop: 4 }}>
-                Standard 0% interest vendor credit
+                Avg 96.5% on-time dispatch SLA
               </div>
             </div>
           </div>
+
+          {poToast && (
+            <div
+              style={{
+                padding: "10px 14px",
+                marginBottom: 16,
+                borderRadius: 10,
+                background: "#ecfdf5",
+                border: "1px solid #a7f3d0",
+                color: "#065f46",
+                fontSize: 12.5,
+                fontWeight: 600,
+              }}
+            >
+              ✓ {poToast}
+            </div>
+          )}
 
           {/* Search & Filter Toolbar */}
           <div
@@ -468,7 +432,9 @@ export default function SuppliersPage() {
                     >
                       <td style={cell}>
                         <div style={{ fontWeight: 700, color: "#261a17", fontSize: 14 }}>{sup.name}</div>
-                        <div style={{ fontSize: 11, color: "#b06354", marginTop: 2, fontWeight: 600 }}>★ {sup.rating} Rating</div>
+                        <div style={{ fontSize: 11, color: "#b06354", marginTop: 2, fontWeight: 600 }}>
+                          ★ {sup.rating} • {sup.onTimePct}% On-Time • YTD ₹{(sup.ytdPurchases / 100000).toFixed(1)}L
+                        </div>
                       </td>
 
                       <td style={cell}>
@@ -586,7 +552,7 @@ export default function SuppliersPage() {
                             <span>💬 WhatsApp</span>
                           </button>
                           <button
-                            onClick={() => alert(`Purchase Order draft initiated for ${sup.name}`)}
+                            onClick={() => openRequisitionModal(sup)}
                             style={{
                               padding: "6px 10px",
                               background: "#ffffff",
@@ -615,6 +581,187 @@ export default function SuppliersPage() {
               </table>
             </div>
           </div>
+
+          {/* Recent Purchase Orders & Incoming Shipments */}
+          <div
+            style={{
+              marginTop: 24,
+              background: "#ffffff",
+              border: "1px solid #ebdcd0",
+              borderRadius: 16,
+              overflow: "hidden",
+              boxShadow: "0 2px 8px rgba(92, 57, 48, 0.05)",
+            }}
+          >
+            <div style={{ padding: "16px 20px", borderBottom: "1px solid #ebdcd0", background: "#fcf9f5", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <div>
+                <h3 style={{ fontFamily: "'Playfair Display', Georgia, serif", fontSize: 17, fontWeight: 700, color: "#261a17", margin: 0 }}>
+                  Recent Purchase Orders &amp; Fabric Shipments
+                </h3>
+                <div style={{ fontSize: 12, color: "#7a6e69", marginTop: 2 }}>
+                  Live procurement pipeline and mill dispatches
+                </div>
+              </div>
+              <span style={{ fontSize: 11, fontWeight: 700, color: "#b06354", background: "#fbf3ef", padding: "4px 10px", borderRadius: 12, border: "1px solid #ebdcd0" }}>
+                {purchaseOrders.length} Active POs
+              </span>
+            </div>
+            <div style={{ overflowX: "auto" }}>
+              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+                <thead>
+                  <tr style={{ background: "#faf6f1", borderBottom: "1px solid #ebdcd0", color: "#7a6e69", fontSize: 11, textTransform: "uppercase" }}>
+                    <th style={cell}>PO Number</th>
+                    <th style={cell}>Supplier / Mill</th>
+                    <th style={cell}>Material &amp; Lot</th>
+                    <th style={cell}>Qty</th>
+                    <th style={{ ...cell, textAlign: "right" }}>PO Value</th>
+                    <th style={cell}>ETA</th>
+                    <th style={{ ...cell, textAlign: "center" }}>Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {purchaseOrders.map((po) => (
+                    <tr key={po.poNumber} style={{ borderBottom: "1px solid #f3ece4" }}>
+                      <td style={{ ...cell, fontWeight: 700, color: "#261a17" }}>
+                        {po.poNumber}
+                        <div style={{ fontSize: 10.5, color: "#8a7b75", fontWeight: 500 }}>{po.orderDate}</div>
+                      </td>
+                      <td style={{ ...cell, fontWeight: 600, color: "#261a17" }}>{po.supplierName}</td>
+                      <td style={{ ...cell, color: "#5f534e" }}>{po.material}</td>
+                      <td style={{ ...cell, fontWeight: 600 }}>{po.quantity}</td>
+                      <td style={{ ...cell, textAlign: "right", fontWeight: 700, color: "#261a17" }}>
+                        ₹{po.amount.toLocaleString("en-IN")}
+                      </td>
+                      <td style={{ ...cell, color: "#7a6e69", fontSize: 12 }}>{po.expectedDate}</td>
+                      <td style={{ ...cell, textAlign: "center" }}>
+                        <span
+                          style={{
+                            padding: "3px 9px",
+                            borderRadius: 12,
+                            fontSize: 10.5,
+                            fontWeight: 700,
+                            background: po.status === "Received" ? "#ecfdf5" : "#fef3c7",
+                            color: po.status === "Received" ? "#047857" : "#b45309",
+                            border: po.status === "Received" ? "1px solid #a7f3d0" : "1px solid #fde68a",
+                          }}
+                        >
+                          {po.status}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          {/* Purchase Requisition Modal */}
+          {reqSupplier && (
+            <div
+              style={{
+                position: "fixed",
+                inset: 0,
+                background: "rgba(38, 26, 23, 0.45)",
+                backdropFilter: "blur(6px)",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                zIndex: 100,
+                padding: 16,
+              }}
+            >
+              <div
+                style={{
+                  width: 480,
+                  maxWidth: "100%",
+                  padding: 26,
+                  background: "#ffffff",
+                  border: "1px solid #ebdcd0",
+                  borderRadius: 18,
+                  boxShadow: "0 20px 60px rgba(92, 57, 48, 0.2)",
+                }}
+              >
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+                  <div>
+                    <h2 style={{ fontFamily: "'Playfair Display', Georgia, serif", fontSize: 19, fontWeight: 700, color: "#261a17", margin: 0 }}>
+                      Create Purchase Requisition
+                    </h2>
+                    <div style={{ fontSize: 11.5, color: "#7a6e69", marginTop: 2 }}>{reqSupplier.name} • {reqSupplier.city}</div>
+                  </div>
+                  <button
+                    onClick={() => setReqSupplier(null)}
+                    style={{ background: "transparent", border: "none", color: "#7a6e69", fontSize: 20, cursor: "pointer" }}
+                  >
+                    ×
+                  </button>
+                </div>
+
+                <form onSubmit={handleCreateRequisition} style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                  <div>
+                    <label style={{ display: "block", fontSize: 12, color: "#7a6e69", fontWeight: 600, marginBottom: 5 }}>
+                      Fabric / Material Description *
+                    </label>
+                    <input
+                      required
+                      value={reqForm.material}
+                      onChange={(e) => setReqForm({ ...reqForm, material: e.target.value })}
+                      style={modalInput}
+                    />
+                  </div>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                    <div>
+                      <label style={{ display: "block", fontSize: 12, color: "#7a6e69", fontWeight: 600, marginBottom: 5 }}>
+                        Order Quantity *
+                      </label>
+                      <input
+                        required
+                        value={reqForm.quantity}
+                        onChange={(e) => setReqForm({ ...reqForm, quantity: e.target.value })}
+                        style={modalInput}
+                      />
+                    </div>
+                    <div>
+                      <label style={{ display: "block", fontSize: 12, color: "#7a6e69", fontWeight: 600, marginBottom: 5 }}>
+                        Estimated Value (₹) *
+                      </label>
+                      <input
+                        type="number"
+                        required
+                        value={reqForm.amount}
+                        onChange={(e) => setReqForm({ ...reqForm, amount: e.target.value })}
+                        style={modalInput}
+                      />
+                    </div>
+                  </div>
+                  <div>
+                    <label style={{ display: "block", fontSize: 12, color: "#7a6e69", fontWeight: 600, marginBottom: 5 }}>
+                      Expected Dispatch / Delivery
+                    </label>
+                    <input
+                      value={reqForm.expectedDate}
+                      onChange={(e) => setReqForm({ ...reqForm, expectedDate: e.target.value })}
+                      style={modalInput}
+                    />
+                  </div>
+                  <div style={{ display: "flex", gap: 10, marginTop: 8 }}>
+                    <button
+                      type="button"
+                      onClick={() => setReqSupplier(null)}
+                      style={{ flex: 1, padding: 10, borderRadius: 8, border: "1px solid #ebdcd0", background: "#fff", color: "#7a6e69", fontWeight: 600, cursor: "pointer" }}
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="submit"
+                      style={{ flex: 1.4, padding: 10, borderRadius: 8, border: "none", background: "linear-gradient(135deg, #b06354 0%, #9e5345 100%)", color: "#fff", fontWeight: 700, cursor: "pointer" }}
+                    >
+                      Confirm Purchase Order
+                    </button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          )}
 
           {/* Add Supplier Modal */}
           {showAddModal && (

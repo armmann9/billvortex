@@ -14,13 +14,13 @@ const navSections = [
     group: "Sales & Billing",
     items: [
       { label: "Quick Bill (POS)", href: "/pos", icon: "🧾", badge: "HOT" },
-      { label: "Billing History", href: "/reports", icon: "📋", badge: "" },
+      { label: "Billing History", href: "/reports?tab=HISTORY", icon: "📋", badge: "" },
     ],
   },
   {
     group: "Inventory",
     items: [
-      { label: "Stock & Items", href: "/inventory", icon: "📦", badge: "" },
+      { label: "Stock & Sales", href: "/inventory", icon: "📦", badge: "" },
       { label: "Fabric Suppliers", href: "/suppliers", icon: "🚚", badge: "" },
     ],
   },
@@ -33,7 +33,7 @@ const navSections = [
   {
     group: "Analytics",
     items: [
-      { label: "GST & Tax Reports", href: "/reports", icon: "🏛️", badge: "" },
+      { label: "GST & Tax Reports", href: "/reports?tab=GST", icon: "🏛️", badge: "" },
     ],
   },
   {
@@ -136,7 +136,7 @@ export default function Sidebar() {
                 fontWeight: 600,
               }}
             >
-              Boutique Billing &amp; Retail
+              Multi-Store Retail &amp; POS
             </div>
           </div>
         </Link>
@@ -190,7 +190,8 @@ export default function Sidebar() {
 
             {!collapsed[section.group || ""] &&
               section.items.map((item) => {
-                const isActive = pathname === item.href;
+                const baseHref = item.href.split("?")[0];
+                const isActive = pathname === baseHref && !item.href.includes("?");
                 return (
                   <Link
                     key={item.href + item.label}
@@ -259,11 +260,11 @@ export default function Sidebar() {
               color: "#fff",
             }}
           >
-            DM
+            SM
           </div>
           <div>
-            <div style={{ fontSize: 12, fontWeight: 700, color: "#261a17" }}>Demo Manager</div>
-            <div style={{ fontSize: 10, color: "#8e7f78" }}>demo@billvortex.com</div>
+            <div style={{ fontSize: 12, fontWeight: 700, color: "#261a17" }}>Store Manager</div>
+            <div style={{ fontSize: 10, color: "#8e7f78" }}>Bandra Flagship • Pro+</div>
           </div>
         </div>
 

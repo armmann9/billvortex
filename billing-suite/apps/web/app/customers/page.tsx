@@ -2,24 +2,17 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { api, getToken } from "../../lib/api";
+import { getToken } from "../../lib/api";
+import { CustomerProfile, INITIAL_CUSTOMERS } from "../../lib/demoData";
 import Sidebar from "../components/Sidebar";
 
-type Customer = {
-  id: string;
-  name: string;
-  phone?: string;
-  email?: string;
-  balance: string;
-  status: string;
-};
+type Customer = CustomerProfile;
 
 export default function CustomersPage() {
   const router = useRouter();
-  const [customers, setCustomers] = useState<Customer[]>([]);
+  const [customers, setCustomers] = useState<Customer[]>(INITIAL_CUSTOMERS);
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState<"ALL" | "DUE" | "PAID">("ALL");
-  const [loading, setLoading] = useState(true);
 
   // New customer quick-add state
   const [showAddModal, setShowAddModal] = useState(false);
@@ -30,11 +23,28 @@ export default function CustomersPage() {
       router.push("/?login=true");
       return;
     }
-    api<Customer[]>("/customers")
-      .then(setCustomers)
-      .catch(() => setCustomers([]))
-      .finally(() => setLoading(false));
+    try {
+      const saved = localStorage.getItem("billvortex_customers_v1");
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) setCustomers(parsed);
+      }
+    } catch {}
   }, [router]);
+
+  function persistCustomers(next: Customer[]) {
+    setCustomers(next);
+    try {
+      localStorage.setItem("billvortex_customers_v1", JSON.stringify(next));
+    } catch {}
+  }
+
+  function settleBalance(id: string) {
+    const next = customers.map((c) =>
+      c.id === id ? { ...c, balance: "0", status: "Paid" as const } : c
+    );
+    persistCustomers(next);
+  }
 
   const filtered = customers.filter((c) => {
     const matchesSearch =
@@ -58,13 +68,18 @@ export default function CustomersPage() {
     const added: Customer = {
       id: `c-${Date.now()}`,
       name: newCust.name,
-      phone: newCust.phone || undefined,
-      email: newCust.email || undefined,
+      phone: newCust.phone || "+91 98200 00000",
+      email: newCust.email || "customer@store.in",
+      city: "Mumbai",
+      type: "Regular Patron",
+      totalVisits: 1,
+      lifetimeSpend: Number(newCust.balance) || 0,
+      lastVisit: new Date().toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" }),
       balance: newCust.balance || "0",
-      status: Number(newCust.balance) > 0 ? "Due" : "Settled",
+      status: Number(newCust.balance) > 0 ? "Due" : "Paid",
     };
 
-    setCustomers((prev) => [added, ...prev]);
+    persistCustomers([added, ...customers]);
     setShowAddModal(false);
     setNewCust({ name: "", phone: "", email: "", balance: "0" });
   }
@@ -322,7 +337,9 @@ export default function CustomersPage() {
                             </div>
                             <div>
                               <div style={{ fontSize: 14, fontWeight: 700, color: "#261a17" }}>{c.name}</div>
-                              <div style={{ fontSize: 11, color: "#9a8b84" }}>ID: {c.id}</div>
+                              <div style={{ fontSize: 11, color: "#7a6e69", marginTop: 2 }}>
+                                <span style={{ color: "#b06354", fontWeight: 700 }}>{c.type}</span> • {c.city} • {c.totalVisits} visits • Lifetime ₹{c.lifetimeSpend.toLocaleString("en-IN")}
+                              </div>
                             </div>
                           </div>
                         </td>
@@ -362,29 +379,47 @@ export default function CustomersPage() {
                         </td>
 
                         <td style={{ ...cell, textAlign: "right" }}>
-                          <button
-                            onClick={() => {
-                              if (c.phone) {
-                                const clean = c.phone.replace(/\D/g, "");
-                                const msg = `🌸 Greetings from BillVortex Boutique! Dear ${c.name}, your current ledger balance is ₹${c.balance}. Kindly clear at your earliest convenience. Thank you!`;
-                                window.open(`https://wa.me/${clean}?text=${encodeURIComponent(msg)}`, "_blank");
-                              } else {
-                                alert(`Reminder queued for ${c.name}`);
-                              }
-                            }}
-                            style={{
-                              padding: "6px 12px",
-                              fontSize: 11,
-                              fontWeight: 600,
-                              background: "#ecfdf5",
-                              border: "1px solid #a7f3d0",
-                              color: "#059669",
-                              borderRadius: 8,
-                              cursor: "pointer",
-                            }}
-                          >
-                            💬 WhatsApp Reminder
-                          </button>
+                          <div style={{ display: "inline-flex", gap: 6, alignItems: "center" }}>
+                            {isDue && (
+                              <button
+                                onClick={() => settleBalance(c.id)}
+                                title="Mark Outstanding Balance as Paid"
+                                style={{
+                                  padding: "6px 10px",
+                                  fontSize: 11,
+                                  fontWeight: 700,
+                                  background: "#faf6f1",
+                                  border: "1px solid #ebdcd0",
+                                  color: "#261a17",
+                                  borderRadius: 8,
+                                  cursor: "pointer",
+                                }}
+                              >
+                                ✓ Mark Paid
+                              </button>
+                            )}
+                            <button
+                              onClick={() => {
+                                if (c.phone) {
+                                  const clean = c.phone.replace(/\D/g, "");
+                                  const msg = `Dear ${c.name},\n\nThis is a polite reminder from BillVortex Store Accounts. Your current Khata ledger balance is Rs. ${Number(c.balance).toLocaleString("en-IN")}. Kindly settle at your convenience.\n\nWarm regards,\nBillVortex Billing Desk`;
+                                  window.open(`https://wa.me/${clean}?text=${encodeURIComponent(msg)}`, "_blank");
+                                }
+                              }}
+                              style={{
+                                padding: "6px 12px",
+                                fontSize: 11,
+                                fontWeight: 600,
+                                background: "#ecfdf5",
+                                border: "1px solid #a7f3d0",
+                                color: "#059669",
+                                borderRadius: 8,
+                                cursor: "pointer",
+                              }}
+                            >
+                              💬 WhatsApp Reminder
+                            </button>
+                          </div>
                         </td>
                       </tr>
                     );

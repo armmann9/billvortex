@@ -1,95 +1,121 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { api, getToken } from "../../lib/api";
+import { getToken } from "../../lib/api";
+import {
+  ExtendedInvoiceRecord,
+  ReportPeriod,
+  computePeriodAnalytics,
+  loadSalesHistory,
+} from "../../lib/demoData";
+import {
+  downloadReceiptPdf,
+  downloadZReportPdf,
+  previewReceiptPdf,
+  sendPdfReceiptViaWhatsApp,
+} from "../../lib/pdfReceipt";
 import Sidebar from "../components/Sidebar";
 
-type DailySalesReport = {
-  date: string;
-  invoices: number;
-  totals: {
-    subtotal: number | string | null;
-    discountTotal: number | string | null;
-    taxableTotal: number | string | null;
-    cgst: number | string | null;
-    sgst: number | string | null;
-    igst: number | string | null;
-    grandTotal: number | string | null;
-  };
-  paymentSplit: Array<{
-    method: string;
-    _sum: { amount: number | string | null };
-  }>;
-};
+type ReportTab = "HISTORY" | "SALES" | "GST" | "PAYMENTS" | "PRODUCTS";
 
 export default function ReportsPage() {
   const router = useRouter();
-  const [period, setPeriod] = useState<"TODAY" | "WEEK" | "MONTH" | "QUARTER">("TODAY");
-  const [activeTab, setActiveTab] = useState<"SALES" | "GST" | "PAYMENTS" | "PRODUCTS">("SALES");
-  const [loading, setLoading] = useState(false);
-  const [dailyData, setDailyData] = useState<DailySalesReport | null>(null);
+  const [period, setPeriod] = useState<ReportPeriod>("TODAY");
+  const [activeTab, setActiveTab] = useState<ReportTab>("SALES");
+  const [salesHistory, setSalesHistory] = useState<ExtendedInvoiceRecord[]>([]);
+  const [historySearch, setHistorySearch] = useState("");
+  const [historyMethod, setHistoryMethod] = useState<string>("ALL");
+  const [toastMsg, setToastMsg] = useState("");
 
   useEffect(() => {
     if (!getToken()) {
       router.push("/?login=true");
       return;
     }
-    setLoading(true);
-    api<DailySalesReport>("/reports/daily-sales")
-      .then(setDailyData)
-      .catch(() => {
-        // Fallback demo data if backend database is cold
-        setDailyData({
-          date: new Date().toISOString().slice(0, 10),
-          invoices: 48,
-          totals: {
-            subtotal: "284500",
-            discountTotal: "14225",
-            taxableTotal: "270275",
-            cgst: "6756.88",
-            sgst: "6756.88",
-            igst: "0",
-            grandTotal: "283788.76",
-          },
-          paymentSplit: [
-            { method: "UPI", _sum: { amount: "175948" } },
-            { method: "CASH", _sum: { amount: "68100" } },
-            { method: "CARD", _sum: { amount: "28400" } },
-            { method: "CREDIT", _sum: { amount: "11340" } },
-          ],
-        });
-      })
-      .finally(() => setLoading(false));
+
+    setSalesHistory(loadSalesHistory());
+
+    if (typeof window !== "undefined") {
+      const params = new URLSearchParams(window.location.search);
+      const tabParam = params.get("tab")?.toUpperCase();
+      if (
+        tabParam === "HISTORY" ||
+        tabParam === "SALES" ||
+        tabParam === "GST" ||
+        tabParam === "PAYMENTS" ||
+        tabParam === "PRODUCTS"
+      ) {
+        setActiveTab(tabParam);
+      }
+    }
   }, [router]);
 
-  const subtotal = Number(dailyData?.totals?.subtotal || 284500);
-  const grandTotal = Number(dailyData?.totals?.grandTotal || 283788);
-  const discountTotal = Number(dailyData?.totals?.discountTotal || 14225);
-  const cgst = Number(dailyData?.totals?.cgst || 6756.88);
-  const sgst = Number(dailyData?.totals?.sgst || 6756.88);
-  const igst = Number(dailyData?.totals?.igst || 0);
-  const totalTax = cgst + sgst + igst;
-  const invoiceCount = dailyData?.invoices || 48;
-  const avgBasket = invoiceCount > 0 ? grandTotal / invoiceCount : 0;
+  const analytics = useMemo(
+    () => computePeriodAnalytics(period, salesHistory),
+    [period, salesHistory]
+  );
 
-  const topProducts = [
-    { name: "Royal Zari Kanjivaram Silk Saree", category: "Sarees", sold: 18, revenue: 89820, margin: "42%" },
-    { name: "Handcrafted Lucknowi Chikankari Anarkali", category: "Ethnic Sets", sold: 24, revenue: 83760, margin: "48%" },
-    { name: "Banarasi Heritage Pure Brocade Dupatta", category: "Dupattas", sold: 31, revenue: 58590, margin: "55%" },
-    { name: "Chanderi Floral Foil Printed Kurti", category: "Kurtis", sold: 39, revenue: 50310, margin: "50%" },
-    { name: "Raw Silk Bridal Lehenga Choli Set", category: "Bridal", sold: 4, revenue: 75600, margin: "38%" },
-  ];
+  const filteredHistory = useMemo(() => {
+    const q = historySearch.trim().toLowerCase();
+    return salesHistory.filter((inv) => {
+      const matchMethod = historyMethod === "ALL" || inv.method === historyMethod;
+      if (!matchMethod) return false;
+      if (!q) return true;
+      return (
+        inv.number.toLowerCase().includes(q) ||
+        inv.customerName.toLowerCase().includes(q) ||
+        inv.customerPhone.toLowerCase().includes(q) ||
+        (inv.branch || "").toLowerCase().includes(q) ||
+        inv.items.some((it) => it.name.toLowerCase().includes(q) || it.sku.toLowerCase().includes(q))
+      );
+    });
+  }, [salesHistory, historySearch, historyMethod]);
 
-  const gstSlabs = [
-    { rate: "0%", desc: "Unstitched Khadi & Handloom Raw Fibers", taxable: 24000, cgst: 0, sgst: 0, total: 24000 },
-    { rate: "5%", desc: "Apparel & Garments ≤ ₹1,000 value & Fabrics", taxable: 185600, cgst: 4640, sgst: 4640, total: 194880 },
-    { rate: "12%", desc: "Apparel & Ready-to-Wear > ₹1,000 value", taxable: 84675, cgst: 5080.5, sgst: 5080.5, total: 94836 },
-    { rate: "18%", desc: "Accessories, Metal Brooches & Gift Packaging", taxable: 16000, cgst: 1440, sgst: 1440, total: 18880 },
-  ];
+  function showToast(text: string) {
+    setToastMsg(text);
+    setTimeout(() => setToastMsg(""), 4000);
+  }
 
-  function handleExport(format: string) {
-    alert(`Generating ${format} export for current boutique register. Download initiated!`);
+  function handleExportGstr1Csv() {
+    const header =
+      "Invoice Number,Date,Time,Branch,Customer Name,Phone,Payment Mode,Subtotal,Discount,Taxable Value,CGST,SGST,Total GST,Grand Total\n";
+    const rows = salesHistory
+      .map((inv) => {
+        const sub = Number(inv.subtotal) || 0;
+        const disc = Number(inv.discount) || 0;
+        const taxable = Math.max(0, sub - disc);
+        const tax = Number(inv.tax) || 0;
+        const halfTax = (tax / 2).toFixed(2);
+        return `"${inv.number}","${inv.date}","${inv.time}","${inv.branch || "Bandra Flagship"}","${inv.customerName}","${inv.customerPhone}","${inv.method}","${sub.toFixed(2)}","${disc.toFixed(2)}","${taxable.toFixed(2)}","${halfTax}","${halfTax}","${tax.toFixed(2)}","${inv.grandTotal}"`;
+      })
+      .join("\n");
+
+    const blob = new Blob([header + rows], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `BillVortex_GSTR1_${period}_${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+    showToast(`GSTR-1 CSV downloaded (${salesHistory.length} compliant invoices).`);
+  }
+
+  function handleDownloadZReport() {
+    const fileName = downloadZReportPdf({
+      periodLabel: analytics.label,
+      invoiceCount: analytics.invoiceCount,
+      subtotal: analytics.subtotal,
+      discountTotal: analytics.discountTotal,
+      taxableTotal: analytics.taxableTotal,
+      cgst: analytics.cgst,
+      sgst: analytics.sgst,
+      totalTax: analytics.totalTax,
+      grandTotal: analytics.grandTotal,
+      paymentSplit: analytics.paymentSplit,
+      gstSlabs: analytics.gstSlabs,
+    });
+    showToast(`Formal Z-Report PDF saved as "${fileName}".`);
   }
 
   return (
@@ -104,20 +130,20 @@ export default function ReportsPage() {
               display: "flex",
               justifyContent: "space-between",
               alignItems: "center",
-              marginBottom: 24,
+              marginBottom: 20,
               flexWrap: "wrap",
               gap: 16,
             }}
           >
             <div>
               <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                <span style={{ fontSize: 28 }}>🌸</span>
+                <span style={{ fontSize: 28 }}>🏛️</span>
                 <div>
                   <h1 style={{ fontFamily: "'Playfair Display', Georgia, serif", fontSize: 26, fontWeight: 700, color: "#261a17", letterSpacing: "-0.02em", margin: 0 }}>
-                    Reports & Tax Analytics
+                    Billing History, GST &amp; Sales Analytics
                   </h1>
                   <p style={{ fontSize: 13, color: "#7a6e69", marginTop: 4 }}>
-                    Real-time sales reconciliation, GST filing breakdown (GSTR-1), and payment audits
+                    Live invoice ledger, GSTR-1 slab reconciliation, payment tender audits &amp; margin analysis
                   </p>
                 </div>
               </div>
@@ -126,7 +152,7 @@ export default function ReportsPage() {
             {/* Quick Actions */}
             <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
               <button
-                onClick={() => handleExport("GSTR-1 Excel / CSV")}
+                onClick={handleExportGstr1Csv}
                 style={{
                   padding: "9px 16px",
                   background: "#ffffff",
@@ -134,7 +160,7 @@ export default function ReportsPage() {
                   color: "#b06354",
                   borderRadius: 20,
                   fontSize: 12,
-                  fontWeight: 600,
+                  fontWeight: 700,
                   cursor: "pointer",
                   display: "flex",
                   alignItems: "center",
@@ -142,14 +168,14 @@ export default function ReportsPage() {
                   boxShadow: "0 2px 8px rgba(92, 57, 48, 0.05)",
                 }}
               >
-                <span>📊 Export GSTR-1</span>
+                <span>📥 Export GSTR-1 CSV</span>
               </button>
               <button
-                onClick={() => handleExport("Day-End Z-Report PDF")}
+                onClick={handleDownloadZReport}
                 style={{
                   padding: "9px 18px",
                   fontSize: 12,
-                  fontWeight: 600,
+                  fontWeight: 700,
                   color: "#ffffff",
                   background: "linear-gradient(135deg, #b06354 0%, #9e5345 100%)",
                   border: "none",
@@ -161,13 +187,30 @@ export default function ReportsPage() {
                   gap: 6,
                 }}
               >
-                <span>🖨️ Day-End Z-Report</span>
+                <span>📄 Download Z-Report PDF</span>
               </button>
             </div>
           </div>
 
+          {toastMsg && (
+            <div
+              style={{
+                padding: "10px 14px",
+                marginBottom: 16,
+                borderRadius: 10,
+                background: "#ecfdf5",
+                border: "1px solid #a7f3d0",
+                color: "#065f46",
+                fontSize: 12.5,
+                fontWeight: 600,
+              }}
+            >
+              ✓ {toastMsg}
+            </div>
+          )}
+
           {/* Time Filter Pills */}
-          <div style={{ display: "flex", gap: 8, marginBottom: 20 }}>
+          <div style={{ display: "flex", gap: 8, marginBottom: 20, flexWrap: "wrap", alignItems: "center" }}>
             {(["TODAY", "WEEK", "MONTH", "QUARTER"] as const).map((p) => (
               <button
                 key={p}
@@ -187,94 +230,57 @@ export default function ReportsPage() {
                 {p === "TODAY" ? "Today's Register" : p === "WEEK" ? "Last 7 Days" : p === "MONTH" ? "This Month" : "Current FY Q3"}
               </button>
             ))}
+            <span style={{ marginLeft: "auto", fontSize: 11.5, color: "#8a7b75", fontWeight: 600 }}>
+              Showing consolidated data across 3 branches • GSTIN: 27AABCA1234F1Z5
+            </span>
           </div>
 
           {/* KPI Cards */}
           <div
             style={{
               display: "grid",
-              gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))",
+              gridTemplateColumns: "repeat(auto-fit, minmax(230px, 1fr))",
               gap: 16,
               marginBottom: 24,
             }}
           >
-            <div
-              style={{
-                background: "#ffffff",
-                border: "1px solid #ebdcd0",
-                borderRadius: 16,
-                padding: "18px 22px",
-                boxShadow: "0 2px 8px rgba(92, 57, 48, 0.05)",
-              }}
-            >
-              <div style={{ fontSize: 12, color: "#7a6e69", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.04em" }}>
-                Total Gross Revenue
-              </div>
+            <div style={kpiCard}>
+              <div style={kpiLabel}>Net Register Revenue</div>
               <div style={{ fontSize: 26, fontWeight: 800, color: "#261a17", marginTop: 6, fontFamily: "'Playfair Display', Georgia, serif" }}>
-                ₹{grandTotal.toLocaleString("en-IN", { maximumFractionDigits: 0 })}
+                ₹{analytics.grandTotal.toLocaleString("en-IN", { maximumFractionDigits: 0 })}
               </div>
               <div style={{ fontSize: 11, color: "#9a8b84", marginTop: 4 }}>
-                Subtotal ₹{subtotal.toLocaleString("en-IN")} • Disc -₹{discountTotal.toLocaleString("en-IN")}
+                Taxable ₹{analytics.taxableTotal.toLocaleString("en-IN")} • Disc -₹{analytics.discountTotal.toLocaleString("en-IN")}
               </div>
             </div>
 
-            <div
-              style={{
-                background: "#ffffff",
-                border: "1px solid #ebdcd0",
-                borderRadius: 16,
-                padding: "18px 22px",
-                boxShadow: "0 2px 8px rgba(92, 57, 48, 0.05)",
-              }}
-            >
-              <div style={{ fontSize: 12, color: "#7a6e69", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.04em" }}>
-                Total GST Collected
-              </div>
+            <div style={kpiCard}>
+              <div style={kpiLabel}>Total GST Collected</div>
               <div style={{ fontSize: 26, fontWeight: 800, color: "#b06354", marginTop: 6, fontFamily: "'Playfair Display', Georgia, serif" }}>
-                ₹{totalTax.toLocaleString("en-IN", { maximumFractionDigits: 0 })}
+                ₹{analytics.totalTax.toLocaleString("en-IN", { maximumFractionDigits: 0 })}
               </div>
               <div style={{ fontSize: 11, color: "#9a8b84", marginTop: 4 }}>
-                CGST: ₹{cgst.toFixed(0)} | SGST: ₹{sgst.toFixed(0)}
+                CGST ₹{analytics.cgst.toLocaleString("en-IN", { maximumFractionDigits: 0 })} | SGST ₹{analytics.sgst.toLocaleString("en-IN", { maximumFractionDigits: 0 })}
               </div>
             </div>
 
-            <div
-              style={{
-                background: "#ffffff",
-                border: "1px solid #ebdcd0",
-                borderRadius: 16,
-                padding: "18px 22px",
-                boxShadow: "0 2px 8px rgba(92, 57, 48, 0.05)",
-              }}
-            >
-              <div style={{ fontSize: 12, color: "#7a6e69", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.04em" }}>
-                Invoices Generated
-              </div>
+            <div style={kpiCard}>
+              <div style={kpiLabel}>Invoices Issued</div>
               <div style={{ fontSize: 26, fontWeight: 800, color: "#261a17", marginTop: 6, fontFamily: "'Playfair Display', Georgia, serif" }}>
-                {invoiceCount} <span style={{ fontSize: 15, fontWeight: 600, color: "#7a6e69" }}>Bills</span>
+                {analytics.invoiceCount} <span style={{ fontSize: 15, fontWeight: 600, color: "#7a6e69" }}>Bills</span>
               </div>
-              <div style={{ fontSize: 11, color: "#9a8b84", marginTop: 4 }}>
-                100% compliant with e-Way & GST
+              <div style={{ fontSize: 11, color: "#16a34a", marginTop: 4, fontWeight: 600 }}>
+                100% GST &amp; PDF receipt reconciled
               </div>
             </div>
 
-            <div
-              style={{
-                background: "#ffffff",
-                border: "1px solid #ebdcd0",
-                borderRadius: 16,
-                padding: "18px 22px",
-                boxShadow: "0 2px 8px rgba(92, 57, 48, 0.05)",
-              }}
-            >
-              <div style={{ fontSize: 12, color: "#7a6e69", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.04em" }}>
-                Average Ticket Size
-              </div>
+            <div style={kpiCard}>
+              <div style={kpiLabel}>Average Bill Value</div>
               <div style={{ fontSize: 26, fontWeight: 800, color: "#16a34a", marginTop: 6, fontFamily: "'Playfair Display', Georgia, serif" }}>
-                ₹{avgBasket.toLocaleString("en-IN", { maximumFractionDigits: 0 })}
+                ₹{analytics.avgBasket.toLocaleString("en-IN", { maximumFractionDigits: 0 })}
               </div>
               <div style={{ fontSize: 11, color: "#9a8b84", marginTop: 4 }}>
-                Average customer spend per bill
+                Est. Gross Margin: ~48.4%
               </div>
             </div>
           </div>
@@ -285,18 +291,20 @@ export default function ReportsPage() {
               display: "flex",
               borderBottom: "1px solid #ebdcd0",
               marginBottom: 20,
-              gap: 24,
+              gap: 22,
+              overflowX: "auto",
             }}
           >
             {[
-              { id: "SALES", label: "📊 Sales Breakdown" },
-              { id: "GST", label: "🏛️ GST Slabs & Tax Reconciliation" },
+              { id: "HISTORY", label: `📋 Billing History (${salesHistory.length})` },
+              { id: "SALES", label: "📊 Sales & Velocity Analysis" },
+              { id: "GST", label: "🏛️ GST Slabs & GSTR-1" },
               { id: "PAYMENTS", label: "💳 Payment Method Split" },
-              { id: "PRODUCTS", label: "👗 Top Fashion Items" },
+              { id: "PRODUCTS", label: "👗 Top Selling Items" },
             ].map((tab) => (
               <button
                 key={tab.id}
-                onClick={() => setActiveTab(tab.id as any)}
+                onClick={() => setActiveTab(tab.id as ReportTab)}
                 style={{
                   background: "transparent",
                   border: "none",
@@ -304,8 +312,9 @@ export default function ReportsPage() {
                   padding: "10px 4px",
                   color: activeTab === tab.id ? "#b06354" : "#7a6e69",
                   fontWeight: activeTab === tab.id ? 700 : 500,
-                  fontSize: 14,
+                  fontSize: 13.5,
                   cursor: "pointer",
+                  whiteSpace: "nowrap",
                   transition: "all 0.15s ease",
                 }}
               >
@@ -313,6 +322,233 @@ export default function ReportsPage() {
               </button>
             ))}
           </div>
+
+          {/* TAB 0: BILLING HISTORY */}
+          {activeTab === "HISTORY" && (
+            <div
+              style={{
+                background: "#ffffff",
+                border: "1px solid #ebdcd0",
+                borderRadius: 16,
+                overflow: "hidden",
+                boxShadow: "0 2px 8px rgba(92, 57, 48, 0.05)",
+              }}
+            >
+              {/* Search & Payment Mode Filter */}
+              <div
+                style={{
+                  padding: "16px 20px",
+                  borderBottom: "1px solid #ebdcd0",
+                  background: "#fcf9f5",
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                  flexWrap: "wrap",
+                  gap: 12,
+                }}
+              >
+                <div style={{ position: "relative", minWidth: 260, flex: 1, maxWidth: 420 }}>
+                  <input
+                    value={historySearch}
+                    onChange={(e) => setHistorySearch(e.target.value)}
+                    placeholder="Search invoice no., customer, phone, branch, or item..."
+                    style={{
+                      width: "100%",
+                      padding: "9px 12px 9px 34px",
+                      borderRadius: 8,
+                      border: "1px solid #ebdcd0",
+                      background: "#ffffff",
+                      fontSize: 12.5,
+                      color: "#261a17",
+                      outline: "none",
+                    }}
+                  />
+                  <span style={{ position: "absolute", left: 11, top: "50%", transform: "translateY(-50%)", fontSize: 13 }}>
+                    🔍
+                  </span>
+                </div>
+
+                <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                  {["ALL", "UPI", "CARD", "CASH", "CREDIT"].map((m) => (
+                    <button
+                      key={m}
+                      onClick={() => setHistoryMethod(m)}
+                      style={{
+                        padding: "5px 12px",
+                        borderRadius: 16,
+                        fontSize: 11,
+                        fontWeight: 700,
+                        cursor: "pointer",
+                        border: historyMethod === m ? "1px solid #b06354" : "1px solid #ebdcd0",
+                        background: historyMethod === m ? "#b06354" : "#ffffff",
+                        color: historyMethod === m ? "#ffffff" : "#7a6e69",
+                      }}
+                    >
+                      {m === "ALL" ? "All Modes" : m}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div style={{ overflowX: "auto" }}>
+                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+                  <thead>
+                    <tr
+                      style={{
+                        background: "#faf6f1",
+                        borderBottom: "1px solid #ebdcd0",
+                        color: "#7a6e69",
+                        fontSize: 11,
+                        textTransform: "uppercase",
+                        letterSpacing: "0.04em",
+                      }}
+                    >
+                      <th style={cell}>Invoice &amp; Branch</th>
+                      <th style={cell}>Customer</th>
+                      <th style={cell}>Items Purchased</th>
+                      <th style={cell}>Payment</th>
+                      <th style={{ ...cell, textAlign: "right" }}>GST</th>
+                      <th style={{ ...cell, textAlign: "right" }}>Grand Total</th>
+                      <th style={{ ...cell, textAlign: "right" }}>Formal PDF Receipt</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filteredHistory.map((inv, idx) => (
+                      <tr
+                        key={inv.number + idx}
+                        style={{
+                          borderBottom: "1px solid #f3ece4",
+                          background: idx % 2 === 0 ? "#ffffff" : "#fdfaf7",
+                        }}
+                      >
+                        <td style={cell}>
+                          <div style={{ fontWeight: 700, color: "#261a17" }}>{inv.number}</div>
+                          <div style={{ fontSize: 11, color: "#8a7b75", marginTop: 2 }}>
+                            {inv.date} • {inv.time}
+                          </div>
+                          <div style={{ fontSize: 10, color: "#b06354", fontWeight: 600, marginTop: 2 }}>
+                            📍 {inv.branch || "Bandra Flagship"}
+                          </div>
+                        </td>
+
+                        <td style={cell}>
+                          <div style={{ fontWeight: 600, color: "#261a17" }}>{inv.customerName}</div>
+                          <div style={{ fontSize: 11, color: "#8a7b75" }}>{inv.customerPhone}</div>
+                        </td>
+
+                        <td style={cell}>
+                          <div style={{ fontWeight: 600, color: "#261a17", fontSize: 12 }}>
+                            {inv.items[0]?.name || "Apparel Sale"}
+                            {inv.items.length > 1 ? ` +${inv.items.length - 1} more` : ""}
+                          </div>
+                          <div style={{ fontSize: 11, color: "#8a7b75" }}>
+                            {inv.items.reduce((s, it) => s + (Number(it.qty) || 1), 0)} units
+                            {Number(inv.discount) > 0 ? ` • Disc -₹${Number(inv.discount).toFixed(0)}` : ""}
+                          </div>
+                        </td>
+
+                        <td style={cell}>
+                          <span
+                            style={{
+                              padding: "3px 8px",
+                              borderRadius: 6,
+                              fontSize: 10.5,
+                              fontWeight: 700,
+                              background:
+                                inv.method === "UPI"
+                                  ? "#ecfdf5"
+                                  : inv.method === "CARD"
+                                  ? "#eff6ff"
+                                  : inv.method === "CASH"
+                                  ? "#fbf3ef"
+                                  : "#fef3c7",
+                              color:
+                                inv.method === "UPI"
+                                  ? "#047857"
+                                  : inv.method === "CARD"
+                                  ? "#1d4ed8"
+                                  : inv.method === "CASH"
+                                  ? "#b06354"
+                                  : "#b45309",
+                            }}
+                          >
+                            {inv.method}
+                          </span>
+                        </td>
+
+                        <td style={{ ...cell, textAlign: "right", color: "#7a6e69", fontSize: 12 }}>
+                          ₹{Number(inv.tax).toLocaleString("en-IN", { minimumFractionDigits: 2 })}
+                        </td>
+
+                        <td style={{ ...cell, textAlign: "right", fontWeight: 800, color: "#261a17", fontSize: 14 }}>
+                          ₹{Number(inv.grandTotal).toLocaleString("en-IN", { minimumFractionDigits: 2 })}
+                        </td>
+
+                        <td style={{ ...cell, textAlign: "right" }}>
+                          <div style={{ display: "inline-flex", gap: 6 }}>
+                            <button
+                              onClick={() => previewReceiptPdf(inv)}
+                              title="Preview Formal PDF Receipt"
+                              style={{
+                                padding: "5px 9px",
+                                borderRadius: 6,
+                                border: "1px solid #ebdcd0",
+                                background: "#faf6f1",
+                                color: "#261a17",
+                                fontSize: 11,
+                                fontWeight: 700,
+                                cursor: "pointer",
+                              }}
+                            >
+                              👁️ PDF
+                            </button>
+                            <button
+                              onClick={() => {
+                                const fn = downloadReceiptPdf(inv);
+                                showToast(`Downloaded formal receipt "${fn}".`);
+                              }}
+                              title="Download PDF"
+                              style={{
+                                padding: "5px 9px",
+                                borderRadius: 6,
+                                border: "1px solid #b06354",
+                                background: "#ffffff",
+                                color: "#b06354",
+                                fontSize: 11,
+                                fontWeight: 700,
+                                cursor: "pointer",
+                              }}
+                            >
+                              ⬇
+                            </button>
+                            <button
+                              onClick={() => {
+                                sendPdfReceiptViaWhatsApp(inv);
+                                showToast(`Formal PDF receipt link opened in WhatsApp for ${inv.customerName}.`);
+                              }}
+                              title="Send 1-Click Formal PDF Receipt Link on WhatsApp"
+                              style={{
+                                padding: "5px 9px",
+                                borderRadius: 6,
+                                border: "none",
+                                background: "#25D366",
+                                color: "#ffffff",
+                                fontSize: 11,
+                                fontWeight: 700,
+                                cursor: "pointer",
+                              }}
+                            >
+                              💬 Send PDF
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
 
           {/* TAB 1: SALES BREAKDOWN */}
           {activeTab === "SALES" && (
@@ -326,20 +562,14 @@ export default function ReportsPage() {
                   boxShadow: "0 2px 8px rgba(92, 57, 48, 0.05)",
                 }}
               >
-                <h3 style={{ fontFamily: "'Playfair Display', Georgia, serif", fontSize: 18, fontWeight: 700, color: "#261a17", marginBottom: 18 }}>
-                  Hourly Sales Velocity (Today)
+                <h3 style={{ fontFamily: "'Playfair Display', Georgia, serif", fontSize: 18, fontWeight: 700, color: "#261a17", marginBottom: 18, marginTop: 0 }}>
+                  {analytics.velocityTitle}
                 </h3>
-                <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-                  {[
-                    { time: "10:00 AM - 12:00 PM", bills: 8, amount: 42300, pct: 15 },
-                    { time: "12:00 PM - 02:00 PM", bills: 12, amount: 68400, pct: 24 },
-                    { time: "02:00 PM - 04:00 PM", bills: 6, amount: 28900, pct: 10 },
-                    { time: "04:00 PM - 06:00 PM", bills: 11, amount: 59200, pct: 21 },
-                    { time: "06:00 PM - 09:00 PM (Peak)", bills: 17, amount: 84988, pct: 30 },
-                  ].map((slot, i) => (
+                <div style={{ display: "flex", flexDirection: "column", gap: 15 }}>
+                  {analytics.velocitySlots.map((slot, i) => (
                     <div key={i}>
                       <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, marginBottom: 5 }}>
-                        <span style={{ color: "#261a17", fontWeight: 600 }}>{slot.time}</span>
+                        <span style={{ color: "#261a17", fontWeight: 600 }}>{slot.label}</span>
                         <span style={{ color: "#b06354", fontWeight: 700 }}>
                           ₹{slot.amount.toLocaleString("en-IN")}{" "}
                           <span style={{ color: "#7a6e69", fontWeight: 400 }}>({slot.bills} bills)</span>
@@ -348,7 +578,7 @@ export default function ReportsPage() {
                       <div style={{ width: "100%", height: 8, background: "#f5eee7", borderRadius: 4, overflow: "hidden" }}>
                         <div
                           style={{
-                            width: `${slot.pct}%`,
+                            width: `${Math.min(100, slot.pct * 2.2)}%`,
                             height: "100%",
                             background: "linear-gradient(90deg, #b06354, #d48b7b)",
                             borderRadius: 4,
@@ -369,31 +599,31 @@ export default function ReportsPage() {
                   boxShadow: "0 2px 8px rgba(92, 57, 48, 0.05)",
                 }}
               >
-                <h3 style={{ fontFamily: "'Playfair Display', Georgia, serif", fontSize: 18, fontWeight: 700, color: "#261a17", marginBottom: 18 }}>
-                  Sales Summary Audit
+                <h3 style={{ fontFamily: "'Playfair Display', Georgia, serif", fontSize: 18, fontWeight: 700, color: "#261a17", marginBottom: 18, marginTop: 0 }}>
+                  Sales Summary Audit ({analytics.label})
                 </h3>
-                <div style={{ display: "flex", flexDirection: "column", gap: 14, fontSize: 13 }}>
+                <div style={{ display: "flex", flexDirection: "column", gap: 13, fontSize: 13 }}>
                   <div style={{ display: "flex", justifyContent: "space-between", color: "#7a6e69" }}>
-                    <span>Gross Sales</span>
-                    <span style={{ color: "#261a17", fontWeight: 600 }}>₹{subtotal.toLocaleString("en-IN")}</span>
+                    <span>Gross Merchandise Value</span>
+                    <span style={{ color: "#261a17", fontWeight: 600 }}>₹{analytics.subtotal.toLocaleString("en-IN")}</span>
                   </div>
                   <div style={{ display: "flex", justifyContent: "space-between", color: "#7a6e69" }}>
-                    <span>Store Discounts</span>
-                    <span style={{ color: "#b06354", fontWeight: 600 }}>-₹{discountTotal.toLocaleString("en-IN")}</span>
+                    <span>Store Discounts Applied</span>
+                    <span style={{ color: "#dc2626", fontWeight: 600 }}>-₹{analytics.discountTotal.toLocaleString("en-IN")}</span>
                   </div>
                   <div style={{ display: "flex", justifyContent: "space-between", color: "#7a6e69" }}>
-                    <span>Taxable Net Value</span>
+                    <span>Net Taxable Turnover</span>
                     <span style={{ color: "#261a17", fontWeight: 600 }}>
-                      ₹{(subtotal - discountTotal).toLocaleString("en-IN")}
+                      ₹{analytics.taxableTotal.toLocaleString("en-IN")}
                     </span>
                   </div>
                   <div style={{ display: "flex", justifyContent: "space-between", color: "#7a6e69" }}>
-                    <span>CGST (Output Tax)</span>
-                    <span style={{ color: "#261a17", fontWeight: 600 }}>₹{cgst.toFixed(2)}</span>
+                    <span>CGST (Central Output Tax)</span>
+                    <span style={{ color: "#261a17", fontWeight: 600 }}>₹{analytics.cgst.toLocaleString("en-IN", { minimumFractionDigits: 2 })}</span>
                   </div>
                   <div style={{ display: "flex", justifyContent: "space-between", color: "#7a6e69" }}>
-                    <span>SGST (Output Tax)</span>
-                    <span style={{ color: "#261a17", fontWeight: 600 }}>₹{sgst.toFixed(2)}</span>
+                    <span>SGST (State Output Tax)</span>
+                    <span style={{ color: "#261a17", fontWeight: 600 }}>₹{analytics.sgst.toLocaleString("en-IN", { minimumFractionDigits: 2 })}</span>
                   </div>
                   <div
                     style={{
@@ -407,7 +637,7 @@ export default function ReportsPage() {
                     }}
                   >
                     <span>Net Register Total</span>
-                    <span>₹{grandTotal.toLocaleString("en-IN", { maximumFractionDigits: 0 })}</span>
+                    <span>₹{analytics.grandTotal.toLocaleString("en-IN", { minimumFractionDigits: 2 })}</span>
                   </div>
                 </div>
               </div>
@@ -427,87 +657,110 @@ export default function ReportsPage() {
             >
               <div style={{ padding: "18px 24px", borderBottom: "1px solid #ebdcd0", background: "#fcf9f5" }}>
                 <h3 style={{ fontFamily: "'Playfair Display', Georgia, serif", fontSize: 18, fontWeight: 700, color: "#261a17", margin: 0 }}>
-                  GST Slab Reconciliation (GSTR-1 Format)
+                  GST Slab Reconciliation — {analytics.label} (GSTR-1 Format)
                 </h3>
                 <p style={{ fontSize: 12, color: "#7a6e69", margin: "4px 0 0" }}>
-                  Apparel GST rates as per GST Council: 5% on garments below ₹1,000 & fabrics, 12% above ₹1,000.
+                  Reconciled HSN/Slab breakdown: 5% on apparel ≤ ₹1,000 &amp; fabrics, 12% on apparel &gt; ₹1,000, 18% on accessories.
                 </p>
               </div>
 
-              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
-                <thead>
-                  <tr
-                    style={{
-                      background: "#fcf9f5",
-                      borderBottom: "1px solid #ebdcd0",
-                      color: "#7a6e69",
-                      fontSize: 11,
-                      textTransform: "uppercase",
-                      letterSpacing: "0.04em",
-                    }}
-                  >
-                    <th style={cell}>GST Rate</th>
-                    <th style={cell}>Category Description</th>
-                    <th style={{ ...cell, textAlign: "right" }}>Taxable Turnover</th>
-                    <th style={{ ...cell, textAlign: "right" }}>CGST</th>
-                    <th style={{ ...cell, textAlign: "right" }}>SGST</th>
-                    <th style={{ ...cell, textAlign: "right" }}>Total Tax</th>
-                    <th style={{ ...cell, textAlign: "right" }}>Gross Value</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {gstSlabs.map((slab, i) => (
+              <div style={{ overflowX: "auto" }}>
+                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+                  <thead>
                     <tr
-                      key={i}
                       style={{
-                        borderBottom: "1px solid #f3ece4",
-                        transition: "background 0.15s ease",
+                        background: "#fcf9f5",
+                        borderBottom: "1px solid #ebdcd0",
+                        color: "#7a6e69",
+                        fontSize: 11,
+                        textTransform: "uppercase",
+                        letterSpacing: "0.04em",
                       }}
-                      onMouseEnter={(e) => (e.currentTarget.style.background = "#faf5ee")}
-                      onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
                     >
-                      <td style={cell}>
-                        <span
-                          style={{
-                            padding: "3px 8px",
-                            borderRadius: 6,
-                            background: "#fbf3ef",
-                            color: "#b06354",
-                            fontWeight: 700,
-                            border: "1px solid #ebdcd0",
-                          }}
-                        >
-                          {slab.rate}
-                        </span>
+                      <th style={cell}>GST Slab</th>
+                      <th style={cell}>HSN Group</th>
+                      <th style={cell}>Category Description</th>
+                      <th style={{ ...cell, textAlign: "right" }}>Taxable Turnover</th>
+                      <th style={{ ...cell, textAlign: "right" }}>CGST</th>
+                      <th style={{ ...cell, textAlign: "right" }}>SGST</th>
+                      <th style={{ ...cell, textAlign: "right" }}>Total GST</th>
+                      <th style={{ ...cell, textAlign: "right" }}>Gross Value</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {analytics.gstSlabs.map((slab, i) => (
+                      <tr
+                        key={i}
+                        style={{
+                          borderBottom: "1px solid #f3ece4",
+                          transition: "background 0.15s ease",
+                        }}
+                        onMouseEnter={(e) => (e.currentTarget.style.background = "#faf5ee")}
+                        onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
+                      >
+                        <td style={cell}>
+                          <span
+                            style={{
+                              padding: "3px 8px",
+                              borderRadius: 6,
+                              background: "#fbf3ef",
+                              color: "#b06354",
+                              fontWeight: 700,
+                              border: "1px solid #ebdcd0",
+                            }}
+                          >
+                            {slab.rate}
+                          </span>
+                        </td>
+                        <td style={{ ...cell, fontFamily: "monospace", fontSize: 11.5, color: "#7a6e69" }}>
+                          {slab.hsn}
+                        </td>
+                        <td style={{ ...cell, color: "#261a17" }}>{slab.desc}</td>
+                        <td style={{ ...cell, textAlign: "right", fontWeight: 600, color: "#261a17" }}>
+                          ₹{slab.taxable.toLocaleString("en-IN")}
+                        </td>
+                        <td style={{ ...cell, textAlign: "right", color: "#7a6e69" }}>
+                          ₹{slab.cgst.toLocaleString("en-IN", { minimumFractionDigits: 2 })}
+                        </td>
+                        <td style={{ ...cell, textAlign: "right", color: "#7a6e69" }}>
+                          ₹{slab.sgst.toLocaleString("en-IN", { minimumFractionDigits: 2 })}
+                        </td>
+                        <td style={{ ...cell, textAlign: "right", fontWeight: 700, color: "#b06354" }}>
+                          ₹{(slab.cgst + slab.sgst).toLocaleString("en-IN", { minimumFractionDigits: 2 })}
+                        </td>
+                        <td style={{ ...cell, textAlign: "right", fontWeight: 700, color: "#16a34a" }}>
+                          ₹{slab.total.toLocaleString("en-IN", { minimumFractionDigits: 2 })}
+                        </td>
+                      </tr>
+                    ))}
+                    <tr style={{ background: "#faf5ee", borderTop: "2px solid #ebdcd0", fontWeight: 800 }}>
+                      <td style={cell} colSpan={3}>RECONCILED TOTAL ({analytics.label.toUpperCase()})</td>
+                      <td style={{ ...cell, textAlign: "right", color: "#261a17" }}>
+                        ₹{analytics.taxableTotal.toLocaleString("en-IN")}
                       </td>
-                      <td style={{ ...cell, color: "#261a17" }}>{slab.desc}</td>
-                      <td style={{ ...cell, textAlign: "right", fontWeight: 600, color: "#261a17" }}>
-                        ₹{slab.taxable.toLocaleString("en-IN")}
+                      <td style={{ ...cell, textAlign: "right", color: "#261a17" }}>
+                        ₹{analytics.cgst.toLocaleString("en-IN", { minimumFractionDigits: 2 })}
                       </td>
-                      <td style={{ ...cell, textAlign: "right", color: "#7a6e69" }}>₹{slab.cgst.toLocaleString("en-IN")}</td>
-                      <td style={{ ...cell, textAlign: "right", color: "#7a6e69" }}>₹{slab.sgst.toLocaleString("en-IN")}</td>
-                      <td style={{ ...cell, textAlign: "right", fontWeight: 700, color: "#b06354" }}>
-                        ₹{(slab.cgst + slab.sgst).toLocaleString("en-IN")}
+                      <td style={{ ...cell, textAlign: "right", color: "#261a17" }}>
+                        ₹{analytics.sgst.toLocaleString("en-IN", { minimumFractionDigits: 2 })}
                       </td>
-                      <td style={{ ...cell, textAlign: "right", fontWeight: 700, color: "#16a34a" }}>
-                        ₹{slab.total.toLocaleString("en-IN")}
+                      <td style={{ ...cell, textAlign: "right", color: "#b06354" }}>
+                        ₹{analytics.totalTax.toLocaleString("en-IN", { minimumFractionDigits: 2 })}
+                      </td>
+                      <td style={{ ...cell, textAlign: "right", color: "#16a34a" }}>
+                        ₹{analytics.grandTotal.toLocaleString("en-IN", { minimumFractionDigits: 2 })}
                       </td>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </tbody>
+                </table>
+              </div>
             </div>
           )}
 
           {/* TAB 3: PAYMENT SPLIT */}
           {activeTab === "PAYMENTS" && (
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: 16 }}>
-              {[
-                { name: "UPI / QR Scanner", amount: 175948, pct: 62, icon: "📱", color: "#16a34a", txns: 32 },
-                { name: "Cash Register", amount: 68100, pct: 24, icon: "💵", color: "#b06354", txns: 11 },
-                { name: "Card (POS EDC)", amount: 28400, pct: 10, icon: "💳", color: "#2563eb", txns: 4 },
-                { name: "Store Credit / Khata", amount: 11340, pct: 4, icon: "📝", color: "#d97706", txns: 1 },
-              ].map((m, i) => (
+              {analytics.paymentSplit.map((m, i) => (
                 <div
                   key={i}
                   style={{
@@ -540,7 +793,7 @@ export default function ReportsPage() {
                       ₹{m.amount.toLocaleString("en-IN")}
                     </div>
                     <div style={{ fontSize: 11, color: "#9a8b84", marginTop: 4 }}>
-                      {m.txns} transactions settled
+                      {m.txns} settled invoices • {analytics.label}
                     </div>
                   </div>
                 </div>
@@ -571,7 +824,7 @@ export default function ReportsPage() {
                       letterSpacing: "0.04em",
                     }}
                   >
-                    <th style={cell}>Product & Silhouette</th>
+                    <th style={cell}>Product &amp; SKU</th>
                     <th style={cell}>Category</th>
                     <th style={{ ...cell, textAlign: "center" }}>Units Sold</th>
                     <th style={{ ...cell, textAlign: "right" }}>Total Revenue</th>
@@ -579,9 +832,9 @@ export default function ReportsPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {topProducts.map((p, i) => (
+                  {analytics.topProducts.map((p, i) => (
                     <tr
-                      key={i}
+                      key={p.sku}
                       style={{
                         borderBottom: "1px solid #f3ece4",
                         transition: "background 0.15s ease",
@@ -591,7 +844,9 @@ export default function ReportsPage() {
                     >
                       <td style={cell}>
                         <div style={{ fontWeight: 700, color: "#261a17" }}>{p.name}</div>
-                        <div style={{ fontSize: 11, color: "#b06354", fontWeight: 600 }}>Rank #{i + 1} Best Seller</div>
+                        <div style={{ fontSize: 11, color: "#b06354", fontWeight: 600 }}>
+                          Rank #{i + 1} • SKU {p.sku}
+                        </div>
                       </td>
                       <td style={cell}>
                         <span
@@ -608,7 +863,9 @@ export default function ReportsPage() {
                           {p.category}
                         </span>
                       </td>
-                      <td style={{ ...cell, textAlign: "center", fontWeight: 700, color: "#261a17" }}>{p.sold} PCS</td>
+                      <td style={{ ...cell, textAlign: "center", fontWeight: 700, color: "#261a17" }}>
+                        {p.sold} PCS
+                      </td>
                       <td style={{ ...cell, textAlign: "right", fontWeight: 700, color: "#b06354", fontSize: 14 }}>
                         ₹{p.revenue.toLocaleString("en-IN")}
                       </td>
@@ -624,7 +881,7 @@ export default function ReportsPage() {
                             fontWeight: 700,
                           }}
                         >
-                          {p.margin}
+                          {p.marginPct}%
                         </span>
                       </td>
                     </tr>
@@ -638,6 +895,22 @@ export default function ReportsPage() {
     </div>
   );
 }
+
+const kpiCard = {
+  background: "#ffffff",
+  border: "1px solid #ebdcd0",
+  borderRadius: 16,
+  padding: "18px 22px",
+  boxShadow: "0 2px 8px rgba(92, 57, 48, 0.05)",
+};
+
+const kpiLabel = {
+  fontSize: 12,
+  color: "#7a6e69",
+  fontWeight: 600,
+  textTransform: "uppercase" as const,
+  letterSpacing: "0.04em",
+};
 
 const cell = {
   padding: "14px 16px",
